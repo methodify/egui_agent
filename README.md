@@ -4,6 +4,8 @@ A reusable **agent control channel** for [egui](https://github.com/emilk/egui)/e
 
 Integration is one trait + one wrap call. Everything else — transport, queuing, repaint pumping, MCP exposure — lives in the crate.
 
+> **Not on crates.io yet** — consume it straight from GitHub. **[docs/USAGE.md](docs/USAGE.md)** walks through adding the git dependency, installing the MCP server/CLI with `cargo install --git`, connecting an MCP host, and using the test harness.
+
 ```rust
 use egui_agent::{AgentApp, Action, ActionResult, Snapshot, SnapshotCtx};
 
