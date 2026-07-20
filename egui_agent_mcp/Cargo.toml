@@ -1,0 +1,31 @@
+[package]
+name = "egui_agent_mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MCP server adapter for egui_agent: exposes an app's control channel as MCP tools over stdio."
+
+[[bin]]
+name = "egui-agent-mcp"
+path = "src/main.rs"
+
+[[bin]]
+name = "egui-agent-cli"
+path = "src/cli.rs"
+
+[dependencies]
+egui_agent = { path = "../egui_agent", default-features = false, features = ["uds"] }
+serde.workspace = true
+serde_json.workspace = true
+log = { workspace = true }
+env_logger = "0.11"
+
+[lib]
+name = "egui_agent_mcp"
+path = "src/lib.rs"
+
+[dev-dependencies]
+egui_agent = { path = "../egui_agent", features = ["uds"] }
+egui.workspace = true
+egui_kittest.workspace = true

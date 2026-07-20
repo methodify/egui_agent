@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "egui_agent",
+    "egui_agent_macros",
+    "egui_agent_mcp",
+    "examples/demo_app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bryonw/egui_agent"
+
+[workspace.dependencies]
+egui = "0.35"
+eframe = { version = "0.35", default-features = false }
+egui_kittest = "0.35"
+# Must match the accesskit version pinned by egui 0.35.
+accesskit = "0.24.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flume = "0.12"
+thiserror = "2"
+log = "0.4"
+
+[profile.dev]
+opt-level = 1

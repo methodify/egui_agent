@@ -1,0 +1,50 @@
+[package]
+name = "egui_agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Agent control channel for egui/eframe apps: semantic commands and structured snapshots over a transport-agnostic core."
+
+[features]
+default = ["eframe", "uds"]
+# eframe integration: Agent<A> implements eframe::App for wrapped apps.
+# Enables winit's Linux platform backends so the crate compiles standalone;
+# renderer choice (glow/wgpu) stays with the consuming app.
+eframe = ["dep:eframe", "eframe/x11", "eframe/wayland"]
+# Match eframe's `glow` feature (it changes the App::on_exit signature).
+# Enable this when your app uses eframe's glow renderer (the eframe default).
+glow = ["eframe", "eframe/glow"]
+# Transports
+uds = []
+ws = ["dep:tungstenite"]
+stdio = []
+pipe = ["dep:interprocess"]
+# Introspection via the AccessKit tree egui already builds.
+accesskit-introspection = ["dep:accesskit"]
+# Screenshot fallback command (PNG of the current frame; requires a backend that honors ViewportCommand::Screenshot).
+screenshot = ["dep:image", "dep:base64"]
+# In-process test harness driving Agent<A> under egui_kittest.
+test-harness = ["dep:egui_kittest"]
+
+[dependencies]
+egui.workspace = true
+eframe = { workspace = true, optional = true }
+accesskit = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+flume.workspace = true
+thiserror.workspace = true
+log.workspace = true
+egui_kittest = { workspace = true, optional = true }
+tungstenite = { version = "0.28", optional = true }
+interprocess = { version = "2", optional = true }
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+base64 = { version = "0.22", optional = true }
+
+[dev-dependencies]
+# Self-dependency turning on the features our tests exercise, so a plain
+# `cargo test --workspace` runs the full suite.
+egui_agent = { path = ".", features = ["test-harness", "stdio", "ws", "pipe", "accesskit-introspection", "screenshot", "glow"] }
+egui_kittest.workspace = true
+serde_json.workspace = true

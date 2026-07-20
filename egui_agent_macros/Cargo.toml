@@ -1,0 +1,15 @@
+[package]
+name = "egui_agent_macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Derive macros for egui_agent: #[derive(Snapshot)] for app state structs."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
