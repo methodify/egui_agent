@@ -22,6 +22,7 @@ fn main() {
     let mut timeout_ms: u64 = 5000;
     let mut target: Option<String> = None;
     let mut args_json: Option<String> = None;
+    let mut quiet = false;
     let mut positional: Vec<String> = Vec::new();
 
     let mut args = std::env::args().skip(1);
@@ -38,6 +39,7 @@ fn main() {
             }
             "--target" => target = args.next(),
             "--args" => args_json = args.next(),
+            "--quiet" => quiet = true,
             "--help" | "-h" => {
                 usage();
                 return;
@@ -59,7 +61,14 @@ fn main() {
         return;
     }
 
-    let cmd = build_command(&verb, &positional[1..], target, args_json, timeout_ms);
+    let cmd = build_command(
+        &verb,
+        &positional[1..],
+        target,
+        args_json,
+        timeout_ms,
+        quiet,
+    );
     run(&mut conn, cmd);
 }
 
@@ -69,6 +78,7 @@ fn build_command(
     target: Option<String>,
     args_json: Option<String>,
     timeout_ms: u64,
+    quiet: bool,
 ) -> Command {
     let parse_selector = |s: &str| -> Selector {
         serde_json::from_str(s).unwrap_or_else(|e| die(&format!("invalid selector {s:?}: {e}")))
@@ -94,6 +104,7 @@ fn build_command(
                 target: target.as_deref().map(parse_selector),
                 action: action.clone(),
                 args: args_json.as_deref().map(parse_value),
+                quiet,
             }
         }
         "set-value" => {
@@ -104,6 +115,7 @@ fn build_command(
             Command::SetValue {
                 target: parse_selector(sel),
                 value: parse_value(value),
+                quiet,
             }
         }
         "wait-for" => {
@@ -114,6 +126,7 @@ fn build_command(
                 predicate: serde_json::from_str(pred)
                     .unwrap_or_else(|e| die(&format!("invalid predicate: {e}"))),
                 timeout_ms,
+                quiet,
             }
         }
         "screenshot" => Command::Screenshot,
@@ -193,6 +206,7 @@ fn usage() {
          \x20 invoke <action> [--target '<selector-json>'] [--args '<json>']\n\
          \x20 set-value '<selector-json>' '<value-json>'\n\
          \x20 wait-for '<predicate-json>' [--timeout <ms>]\n\
+         \x20 (invoke/set-value/wait-for take --quiet to omit the echoed snapshot)\n\
          \x20 screenshot\n\
          \x20 custom <name> [--args '<json>']\n\
          \x20 repl\n\n\

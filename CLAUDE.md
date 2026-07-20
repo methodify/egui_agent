@@ -43,6 +43,8 @@ Load-bearing constraints (design doc §4): commands only execute on the UI threa
 
 ## Cautions
 
+- Wire-format invariant (0.2.0+): AccessKit node ids serialize as **strings** in JSON (`node_id`, `{"node": "..."}` selectors) because they exceed JSON's f64-safe integer range — don't regress them to numbers. Protocol changes require a version bump and a `CHANGELOG.md` entry.
+
 - Security posture is part of the design (§13): off unless `Config::enabled`, local-only transports, optional auth token, `read_only` mode, audit log. Don't weaken defaults.
 - Every feature must keep the transport-free kittest path working (§16) — test new commands through `TestHarness`, not just over sockets.
 - The MCP server is deliberately hand-rolled (line-delimited JSON-RPC, no tokio); keep the core free of async runtimes.

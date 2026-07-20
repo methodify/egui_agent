@@ -44,7 +44,13 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rect: Option<[f32; 4]>,
     /// AccessKit node id, when the node came from the a11y tree.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Serialized as a **string** — node ids use the full u64 range and
+    /// corrupt through JSON parsers that read numbers as f64.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::protocol::opt_u64_as_string"
+    )]
     pub node_id: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,

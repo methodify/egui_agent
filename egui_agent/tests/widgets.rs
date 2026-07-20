@@ -52,6 +52,7 @@ fn set_value_actuates_text_edit() {
         .send(Command::SetValue {
             target: Selector::Id("name".into()),
             value: json!("Ada"),
+            quiet: false,
         })
         .expect("set_value succeeds");
     let ResponseBody::ValueSet { snapshot } = body else {
@@ -70,6 +71,7 @@ fn click_actuates_button_like_a_user() {
     h.send(Command::SetValue {
         target: Selector::Id("name".into()),
         value: json!("Grace"),
+        quiet: false,
     })
     .unwrap();
     let body = h
@@ -77,6 +79,7 @@ fn click_actuates_button_like_a_user() {
             target: Some(Selector::Id("submit".into())),
             action: "click".into(),
             args: None,
+            quiet: false,
         })
         .expect("click succeeds");
     assert!(matches!(body, ResponseBody::Invoked { .. }));
@@ -90,6 +93,7 @@ fn click_by_label_resolves_through_registry() {
         target: Some(Selector::Label("Submit".into())),
         action: "click".into(),
         args: None,
+        quiet: false,
     })
     .expect("click by label succeeds");
     assert!(h.app().submitted.is_some());
@@ -101,6 +105,7 @@ fn set_value_actuates_checkbox_and_slider() {
     h.send(Command::SetValue {
         target: Selector::Id("subscribed".into()),
         value: json!(true),
+        quiet: false,
     })
     .unwrap();
     assert!(h.app().subscribed);
@@ -110,6 +115,7 @@ fn set_value_actuates_checkbox_and_slider() {
         target: Some(Selector::Id("subscribed".into())),
         action: "click".into(),
         args: None,
+        quiet: false,
     })
     .unwrap();
     assert!(!h.app().subscribed);
@@ -117,6 +123,7 @@ fn set_value_actuates_checkbox_and_slider() {
     h.send(Command::SetValue {
         target: Selector::Id("volume".into()),
         value: json!(150.0),
+        quiet: false,
     })
     .unwrap();
     assert_eq!(h.app().volume, 100.0, "slider values clamp to their range");
@@ -130,6 +137,7 @@ fn actuating_missing_widget_times_out_to_target_not_found() {
             target: Some(Selector::Id("ghost".into())),
             action: "click".into(),
             args: None,
+            quiet: false,
         })
         .expect_err("no such widget");
     assert!(matches!(err, AgentError::TargetNotFound(_)), "{err:?}");
@@ -166,6 +174,7 @@ fn widget_appearing_within_grace_frames_is_actuated() {
         target: Some(Selector::Id("late".into())),
         action: "click".into(),
         args: None,
+        quiet: false,
     })
     .expect("late widget still actuated");
     assert!(h.app().clicked);
@@ -184,4 +193,21 @@ fn expose_publishes_read_only_state() {
     };
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].value, Some(json!(null)));
+}
+
+#[test]
+fn quiet_set_value_still_actuates() {
+    let mut h = form_harness();
+    let body = h
+        .send(Command::SetValue {
+            target: Selector::Id("name".into()),
+            value: json!("Quiet Ada"),
+            quiet: true,
+        })
+        .expect("quiet set_value succeeds");
+    let ResponseBody::ValueSet { snapshot } = body else {
+        panic!("{body:?}")
+    };
+    assert!(snapshot.is_none());
+    assert_eq!(h.app().name, "Quiet Ada");
 }

@@ -132,6 +132,11 @@ pub(crate) fn resolve(
     }
 }
 
+/// Whether a node id exists in the cached a11y tree (last completed pass).
+pub(crate) fn node_exists(ctx: &egui::Context, id: AkId) -> bool {
+    shared(ctx).lock().unwrap().nodes.contains_key(&id)
+}
+
 /// Current toggle state of a cached a11y node, if it is toggleable.
 pub(crate) fn node_toggled(ctx: &egui::Context, id: AkId) -> Option<bool> {
     let shared = shared(ctx);

@@ -23,13 +23,26 @@ pub enum Command {
         action: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         args: Option<Value>,
+        /// Suppress the post-action snapshot in the response (lighter for
+        /// large UIs; overrides `Config::post_action_snapshot` per call).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        quiet: bool,
     },
     /// Set a named/targeted value (text field, slider, toggle...).
-    SetValue { target: Selector, value: Value },
+    SetValue {
+        target: Selector,
+        value: Value,
+        /// Suppress the post-action snapshot in the response.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        quiet: bool,
+    },
     /// Block until a predicate over the snapshot holds, or timeout.
     WaitFor {
         predicate: Predicate,
         timeout_ms: u64,
+        /// Suppress the snapshot in the response.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        quiet: bool,
     },
     /// Optional fallback: PNG of the current frame (requires the `screenshot` feature
     /// and a backend that honors `ViewportCommand::Screenshot`).
@@ -53,7 +66,89 @@ pub enum Selector {
         name: Option<String>,
     },
     /// AccessKit node id. Ephemeral unless the app guarantees stable id sources.
-    Node(u64),
+    ///
+    /// On the wire this is a **string** (`{"node": "12345"}`): node ids use
+    /// the full u64 range, which corrupts through JSON parsers that read
+    /// numbers as f64 (anything above 2^53). Plain JSON numbers are still
+    /// accepted on input when they are exact integers.
+    Node(#[serde(with = "u64_as_string")] u64),
+}
+
+/// Serialize u64 as a JSON string; accept strings or exact JSON integers.
+/// Node ids cover the full u64 range, and JavaScript-based MCP hosts corrupt
+/// integers above 2^53 through f64 — strings survive every JSON stack.
+pub(crate) mod u64_as_string {
+    use serde::de::Visitor;
+
+    pub fn serialize<S: serde::Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(v)
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+        struct V;
+        impl Visitor<'_> for V {
+            type Value = u64;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a node id as a string (preferred) or exact integer")
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<u64, E> {
+                Ok(v)
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<u64, E> {
+                u64::try_from(v).map_err(|_| E::custom("node id cannot be negative"))
+            }
+            fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<u64, E> {
+                // Reject anything that lost precision on the way in.
+                if v.fract() == 0.0 && v >= 0.0 && v <= (1u64 << 53) as f64 {
+                    Ok(v as u64)
+                } else {
+                    Err(E::custom(
+                        "node id lost precision as a JSON number; send it as a string",
+                    ))
+                }
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<u64, E> {
+                v.parse()
+                    .map_err(|_| E::custom(format!("invalid node id {v:?}")))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+/// `Option<u64>` variant of [`u64_as_string`].
+pub(crate) mod opt_u64_as_string {
+    use serde::de::Visitor;
+
+    pub fn serialize<S: serde::Serializer>(v: &Option<u64>, s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            Some(x) => s.collect_str(x),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+        struct OptV;
+        impl<'de> Visitor<'de> for OptV {
+            type Value = Option<u64>;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an optional node id as a string or exact integer")
+            }
+            fn visit_none<E>(self) -> Result<Self::Value, E> {
+                Ok(None)
+            }
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(None)
+            }
+            fn visit_some<D2: serde::Deserializer<'de>>(
+                self,
+                d: D2,
+            ) -> Result<Self::Value, D2::Error> {
+                super::u64_as_string::deserialize(d).map(Some)
+            }
+        }
+        d.deserialize_option(OptV)
+    }
 }
 
 impl std::fmt::Display for Selector {

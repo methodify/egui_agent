@@ -18,11 +18,14 @@ egui_agent_macros = { git = "https://github.com/methodify/egui_agent" }
 
 Cargo locates each crate inside the workspace by package name automatically. The first
 build records the exact commit in your `Cargo.lock`; later `cargo update` will move it.
-If you want to pin explicitly:
+To pin explicitly, use a release tag (see `CHANGELOG.md` for versions):
 
 ```toml
-egui_agent = { git = "https://github.com/methodify/egui_agent", rev = "ed4011d", features = ["glow"] }
+egui_agent = { git = "https://github.com/methodify/egui_agent", tag = "v0.2.0", features = ["glow"] }
 ```
+
+The wire protocol can change between 0.x versions (e.g. 0.2.0 changed node-id
+encoding) — keep the app's crate and the installed tools on the same version.
 
 Two version notes that matter:
 
@@ -130,6 +133,8 @@ egui_agent = { git = "https://github.com/methodify/egui_agent", features = ["glo
 $ cargo install --git https://github.com/methodify/egui_agent egui_agent_mcp
 ```
 
+(Add `--tag v0.2.0` to install a pinned release matching your app's dependency.)
+
 This installs two binaries into `~/.cargo/bin`:
 
 - `egui-agent-mcp` — MCP server (stdio) that bridges an MCP host to your app's socket
@@ -186,6 +191,12 @@ set_value {"target": {"id": "query"}, "value": "rust"}
 invoke    {"target": {"id": "search"}, "action": "click"}
 wait_for  {"predicate": {"exists": {"label": "results: 10"}}, "timeout_ms": 3000}
 ```
+
+Notes for hosts/agents: node ids in snapshots and `{"node": ...}` selectors are
+**strings** (they exceed JSON's safe integer range); `args`/`value` must be typed
+JSON values, not JSON-encoded strings (structured args arriving as strings are
+tolerated and re-parsed, except `set_value.value`); pass `"quiet": true` on
+`invoke`/`set_value`/`wait_for` to omit the echoed snapshot when context is tight.
 
 ## 5. Drive it from the shell
 

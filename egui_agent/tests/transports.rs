@@ -91,6 +91,7 @@ fn uds_round_trip_with_auth() {
                 .request(Command::SetValue {
                     target: Selector::Id("text".into()),
                     value: json!("over the wire"),
+                    quiet: false,
                 })
                 .map_err(|e| e.to_string())?
                 .map_err(|e| e.to_string())?;
@@ -103,6 +104,7 @@ fn uds_round_trip_with_auth() {
                     target: Some(Selector::Id("bump".into())),
                     action: "click".into(),
                     args: None,
+                    quiet: false,
                 })
                 .map_err(|e| e.to_string())?
                 .map_err(|e| e.to_string())?;
@@ -230,6 +232,7 @@ fn pipe_round_trip() {
             conn.request(Command::WaitFor {
                 predicate: egui_agent::Predicate::Exists(Selector::Id("bump".into())),
                 timeout_ms: 5000,
+                quiet: false,
             })
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;

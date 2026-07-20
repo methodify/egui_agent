@@ -37,6 +37,8 @@ struct Pending {
     reply: flume::Sender<Response>,
     /// Always `Some` between frames; taken while being advanced.
     state: Option<PendingState>,
+    /// Per-command override suppressing the response snapshot.
+    quiet: bool,
 }
 
 enum ActKind {
@@ -157,9 +159,7 @@ impl<A: AgentApp> Agent<A> {
 
     /// Build and send the settled response for an actuation.
     fn respond_settled(&mut self, i: usize, kind: ActKind, ctx: &egui::Context) {
-        let snapshot = self
-            .config()
-            .post_action_snapshot
+        let snapshot = (self.config().post_action_snapshot && !self.pending[i].quiet)
             .then(|| self.snapshot(ctx));
         let body = match kind {
             ActKind::Invoke { result } => ResponseBody::Invoked { result, snapshot },
@@ -226,7 +226,8 @@ impl<A: AgentApp> Agent<A> {
                 let snap = self.snapshot(ctx);
                 if crate::predicate::eval(&predicate, &snap) {
                     let waited_ms = started.elapsed().as_millis() as u64;
-                    let snapshot = self.config().post_action_snapshot.then_some(snap);
+                    let snapshot = (self.config().post_action_snapshot && !self.pending[i].quiet)
+                        .then_some(snap);
                     let _ = self.pending[i].reply.send(Ok(ResponseBody::Satisfied {
                         waited_ms,
                         snapshot,
@@ -283,6 +284,7 @@ impl<A: AgentApp> Agent<A> {
                 target,
                 action,
                 args,
+                quiet,
             } => {
                 if self.reject_if_read_only(&reply) {
                     return;
@@ -292,7 +294,7 @@ impl<A: AgentApp> Agent<A> {
                     name: action,
                     args,
                 };
-                self.dispatch_action(act, reply, ctx);
+                self.dispatch_action(act, quiet, reply, ctx);
             }
             Command::Custom { name, args } => {
                 if self.reject_if_read_only(&reply) {
@@ -303,18 +305,23 @@ impl<A: AgentApp> Agent<A> {
                     name,
                     args: Some(args),
                 };
-                self.dispatch_action(act, reply, ctx);
+                self.dispatch_action(act, false, reply, ctx);
             }
-            Command::SetValue { target, value } => {
+            Command::SetValue {
+                target,
+                value,
+                quiet,
+            } => {
                 if self.reject_if_read_only(&reply) {
                     return;
                 }
                 let act = Action::SetValue { target, value };
-                self.dispatch_action(act, reply, ctx);
+                self.dispatch_action(act, quiet, reply, ctx);
             }
             Command::WaitFor {
                 predicate,
                 timeout_ms,
+                quiet,
             } => {
                 let now = Instant::now();
                 let state = PendingState::WaitFor {
@@ -327,6 +334,7 @@ impl<A: AgentApp> Agent<A> {
                 self.pending.push(Pending {
                     reply,
                     state: Some(state),
+                    quiet,
                 });
                 let i = self.pending.len() - 1;
                 if self.advance_one(i, ctx) {
@@ -340,6 +348,7 @@ impl<A: AgentApp> Agent<A> {
                     self.pending.push(Pending {
                         reply,
                         state: Some(PendingState::Screenshot { frames_left: 10 }),
+                        quiet: false,
                     });
                 }
                 #[cfg(not(feature = "screenshot"))]
@@ -365,6 +374,7 @@ impl<A: AgentApp> Agent<A> {
     fn dispatch_action(
         &mut self,
         action: Action,
+        quiet: bool,
         reply: flume::Sender<Response>,
         ctx: &egui::Context,
     ) {
@@ -374,13 +384,14 @@ impl<A: AgentApp> Agent<A> {
                     Action::Invoke { .. } => ActKind::Invoke { result },
                     Action::SetValue { .. } => ActKind::SetValue,
                 };
-                if self.config().post_action_snapshot {
+                if self.config().post_action_snapshot && !quiet {
                     self.pending.push(Pending {
                         reply,
                         state: Some(PendingState::Settling {
                             kind,
                             frames_left: self.settle_frames(),
                         }),
+                        quiet,
                     });
                 } else {
                     let body = match kind {
@@ -399,7 +410,7 @@ impl<A: AgentApp> Agent<A> {
             ActionResult::BadArgs(msg) => {
                 let _ = reply.send(Err(AgentError::BadArgs(msg)));
             }
-            ActionResult::Unhandled => self.registry_fallback(action, reply, ctx),
+            ActionResult::Unhandled => self.registry_fallback(action, quiet, reply, ctx),
         }
     }
 
@@ -410,6 +421,7 @@ impl<A: AgentApp> Agent<A> {
     fn registry_fallback(
         &mut self,
         action: Action,
+        quiet: bool,
         reply: flume::Sender<Response>,
         ctx: &egui::Context,
     ) {
@@ -428,6 +440,7 @@ impl<A: AgentApp> Agent<A> {
                         kind,
                         grace_left: self.config().actuation_grace_frames,
                     }),
+                    quiet,
                 });
                 return;
             }
@@ -444,6 +457,7 @@ impl<A: AgentApp> Agent<A> {
                         kind,
                         frames_left: self.settle_frames() + injection_frames,
                     }),
+                    quiet,
                 });
             }
             Err(ak_err) => {
@@ -501,7 +515,16 @@ impl<A: AgentApp> Agent<A> {
         use accesskit::{Action as AkAction, ActionData, ActionRequest};
 
         let node = match target {
-            Selector::Node(n) => accesskit::NodeId(*n),
+            Selector::Node(n) => {
+                let id = accesskit::NodeId(*n);
+                // Validate against the cached tree: egui silently ignores
+                // ActionRequests for unknown targets, which would otherwise
+                // turn a stale/corrupted node id into a silent no-op.
+                if !crate::introspection::node_exists(ctx, id) {
+                    return Err(AgentError::TargetNotFound(target.to_string()));
+                }
+                id
+            }
             other => crate::introspection::resolve(ctx, other)?,
         };
         let request = |action, data| ActionRequest {

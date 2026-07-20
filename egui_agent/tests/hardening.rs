@@ -41,11 +41,13 @@ fn events_are_observable_and_waitable() {
     let rx = h.hub().submit(Command::WaitFor {
         predicate: Predicate::Exists(Selector::Label("saved".into())),
         timeout_ms: 10_000,
+        quiet: false,
     });
     h.send(Command::Invoke {
         target: Some(Selector::Id("save".into())),
         action: "click".into(),
         args: None,
+        quiet: false,
     })
     .unwrap();
     h.step();
@@ -107,6 +109,7 @@ fn idle_settle_policy_resolves() {
             target: None,
             action: "bump".into(),
             args: None,
+            quiet: false,
         })
         .expect("bump settles under Idle policy");
     let ResponseBody::Invoked {

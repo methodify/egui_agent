@@ -90,6 +90,7 @@ fn invoke_dispatches_and_returns_settled_snapshot() {
             target: None,
             action: "increment".into(),
             args: None,
+            quiet: false,
         })
         .expect("invoke succeeds");
     let ResponseBody::Invoked { result, snapshot } = body else {
@@ -112,6 +113,7 @@ fn invoke_rejection_maps_to_action_rejected() {
             target: None,
             action: "increment".into(),
             args: None,
+            quiet: false,
         })
         .expect_err("limit reached");
     assert_eq!(err, AgentError::ActionRejected("limit reached".into()));
@@ -125,6 +127,7 @@ fn bad_args_and_unknown_action() {
             target: None,
             action: "set_limit".into(),
             args: Some(json!("x")),
+            quiet: false,
         })
         .expect_err("bad args");
     assert!(matches!(err, AgentError::BadArgs(_)), "{err:?}");
@@ -134,6 +137,7 @@ fn bad_args_and_unknown_action() {
             target: None,
             action: "no_such_verb".into(),
             args: None,
+            quiet: false,
         })
         .expect_err("unknown action");
     assert_eq!(err, AgentError::UnknownAction("no_such_verb".into()));
@@ -210,6 +214,7 @@ fn read_only_mode_rejects_actuation_but_allows_snapshot() {
             target: None,
             action: "increment".into(),
             args: None,
+            quiet: false,
         })
         .expect_err("read-only");
     assert_eq!(err, AgentError::ReadOnly);
@@ -217,6 +222,7 @@ fn read_only_mode_rejects_actuation_but_allows_snapshot() {
         .send(Command::SetValue {
             target: Selector::Id("count".into()),
             value: json!(5),
+            quiet: false,
         })
         .expect_err("read-only");
     assert_eq!(err, AgentError::ReadOnly);
@@ -232,6 +238,7 @@ fn wait_for_already_satisfied_resolves_same_frame() {
                 value: json!(0),
             },
             timeout_ms: 1000,
+            quiet: false,
         })
         .expect("wait_for succeeds");
     assert!(matches!(body, ResponseBody::Satisfied { .. }));
@@ -246,6 +253,7 @@ fn wait_for_resolves_when_state_changes_later() {
             value: json!(1),
         },
         timeout_ms: 10_000,
+        quiet: false,
     });
     h.step();
     assert!(rx.try_recv().is_err(), "predicate should not hold yet");
@@ -271,6 +279,7 @@ fn wait_for_times_out_with_structured_error() {
         .send(Command::WaitFor {
             predicate: Predicate::Exists(Selector::Id("never".into())),
             timeout_ms: 1,
+            quiet: false,
         })
         .expect_err("timeout");
     assert!(matches!(err, AgentError::Timeout(_)), "{err:?}");
@@ -328,6 +337,7 @@ fn ambiguous_selector_is_reported() {
             target: Some(Selector::Label("Same".into())),
             action: "click".into(),
             args: None,
+            quiet: false,
         })
         .expect_err("ambiguous");
     assert!(matches!(err, AgentError::AmbiguousSelector(_)), "{err:?}");
@@ -358,14 +368,17 @@ fn protocol_serde_roundtrip() {
             target: Some(Selector::Id("submit".into())),
             action: "click".into(),
             args: Some(json!({ "x": 1 })),
+            quiet: false,
         },
         Command::SetValue {
             target: Selector::Label("Name".into()),
             value: json!("Ada"),
+            quiet: false,
         },
         Command::WaitFor {
             predicate: Predicate::All(vec![Predicate::Exists(Selector::Node(7))]),
             timeout_ms: 250,
+            quiet: false,
         },
         Command::Screenshot,
         Command::Custom {
@@ -383,4 +396,68 @@ fn protocol_serde_roundtrip() {
     let err: AgentError =
         serde_json::from_str(r#"{"kind":"target_not_found","detail":"id=x"}"#).unwrap();
     assert_eq!(err, AgentError::TargetNotFound("id=x".into()));
+}
+
+#[test]
+fn node_ids_survive_json_as_strings() {
+    // Node ids use the full u64 range; above 2^53 they corrupt through any
+    // JSON stack that parses numbers as f64. They are strings on the wire.
+    let big = u64::MAX - 12345;
+    let sel = Selector::Node(big);
+    let json = serde_json::to_string(&sel).unwrap();
+    assert_eq!(json, format!("{{\"node\":\"{big}\"}}"));
+    let back: Selector = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, sel);
+
+    // Small exact integers are still accepted for compatibility.
+    let back: Selector = serde_json::from_str(r#"{"node": 42}"#).unwrap();
+    assert_eq!(back, Selector::Node(42));
+
+    // A float that lost precision is rejected loudly, not truncated.
+    let err = serde_json::from_str::<Selector>(r#"{"node": 1.8446744073709552e19}"#);
+    assert!(err.is_err(), "precision-lossy node id must not deserialize");
+
+    // Snapshot nodes serialize node_id as a string too.
+    let node = Node::new("button").with_id("x");
+    let mut node = node;
+    node.node_id = Some(big);
+    let json = serde_json::to_value(&node).unwrap();
+    assert_eq!(json["node_id"], json!(big.to_string()));
+    let back: Node = serde_json::from_value(json).unwrap();
+    assert_eq!(back.node_id, Some(big));
+}
+
+#[test]
+fn quiet_suppresses_response_snapshots() {
+    let mut h = counter_harness();
+
+    let body = h
+        .send(Command::Invoke {
+            target: None,
+            action: "increment".into(),
+            args: None,
+            quiet: true,
+        })
+        .expect("quiet invoke succeeds");
+    let ResponseBody::Invoked { result, snapshot } = body else {
+        panic!("{body:?}")
+    };
+    assert_eq!(result, Some(json!(1)), "result still returned");
+    assert!(snapshot.is_none(), "quiet omits the snapshot");
+    assert_eq!(h.app().count, 1, "the action still ran");
+
+    let body = h
+        .send(Command::WaitFor {
+            predicate: Predicate::ValueEq {
+                target: Selector::Id("count".into()),
+                value: json!(1),
+            },
+            timeout_ms: 1000,
+            quiet: true,
+        })
+        .expect("quiet wait_for succeeds");
+    let ResponseBody::Satisfied { snapshot, .. } = body else {
+        panic!("{body:?}")
+    };
+    assert!(snapshot.is_none(), "quiet omits the wait_for snapshot");
 }

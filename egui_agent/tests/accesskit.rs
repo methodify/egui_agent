@@ -31,6 +31,7 @@ fn plain_harness() -> TestHarness<'static, PlainApp> {
     h.send(Command::WaitFor {
         predicate: Predicate::Exists(Selector::Label("Plus".into())),
         timeout_ms: 5000,
+        quiet: false,
     })
     .expect("a11y tree becomes visible");
     h
@@ -64,6 +65,7 @@ fn click_plain_button_via_label() {
         target: Some(Selector::Label("Plus".into())),
         action: "click".into(),
         args: None,
+        quiet: false,
     })
     .expect("click via injected ActionRequest");
     assert_eq!(h.app().count, 1);
@@ -97,6 +99,7 @@ fn click_plain_button_via_node_id() {
         target: Some(Selector::Node(node_id)),
         action: "click".into(),
         args: None,
+        quiet: false,
     })
     .expect("click via raw node id");
     assert_eq!(h.app().count, 1);
@@ -108,6 +111,7 @@ fn set_bool_value_toggles_plain_checkbox() {
     h.send(Command::SetValue {
         target: Selector::Label("Dark mode".into()),
         value: json!(true),
+        quiet: false,
     })
     .expect("toggle on");
     assert!(h.app().dark);
@@ -116,6 +120,7 @@ fn set_bool_value_toggles_plain_checkbox() {
     h.send(Command::SetValue {
         target: Selector::Label("Dark mode".into()),
         value: json!(true),
+        quiet: false,
     })
     .expect("idempotent set");
     assert!(h.app().dark);
@@ -123,6 +128,7 @@ fn set_bool_value_toggles_plain_checkbox() {
     h.send(Command::SetValue {
         target: Selector::Label("Dark mode".into()),
         value: json!(false),
+        quiet: false,
     })
     .expect("toggle off");
     assert!(!h.app().dark);
@@ -137,6 +143,7 @@ fn set_string_value_on_plain_text_edit() {
             name: None,
         },
         value: json!("hello from accesskit"),
+        quiet: false,
     });
     // egui supports AccessKit SetValue on text edits; assert it works so a
     // regression in the pinned egui version is caught loudly.
@@ -152,10 +159,31 @@ fn unknown_label_is_target_not_found() {
             target: Some(Selector::Label("Ghost".into())),
             action: "click".into(),
             args: None,
+            quiet: false,
         })
         .expect_err("nothing to click");
     assert!(
         matches!(err, egui_agent::AgentError::TargetNotFound(_)),
         "{err:?}"
     );
+}
+
+#[test]
+fn unknown_node_id_errors_instead_of_silent_noop() {
+    let mut h = plain_harness();
+    // A node id that cannot exist in the tree: egui would silently drop the
+    // ActionRequest, so the agent must reject it up front.
+    let err = h
+        .send(Command::Invoke {
+            target: Some(Selector::Node(u64::MAX - 7)),
+            action: "click".into(),
+            args: None,
+            quiet: false,
+        })
+        .expect_err("unknown node id");
+    assert!(
+        matches!(err, egui_agent::AgentError::TargetNotFound(_)),
+        "{err:?}"
+    );
+    assert_eq!(h.app().count, 0, "nothing was clicked");
 }

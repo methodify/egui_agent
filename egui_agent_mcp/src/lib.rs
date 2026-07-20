@@ -141,8 +141,14 @@ pub fn resolve_endpoint(
 /// Tool definitions advertised by `tools/list`.
 pub fn tool_definitions() -> Value {
     let selector_schema = json!({
-        "description": "Widget selector: {\"id\": \"...\"} (stable semantic id, preferred), {\"label\": \"...\"}, {\"role\": {\"role\": \"button\", \"name\": \"...\"}}, or {\"node\": 123}.",
+        "description": "Widget selector: {\"id\": \"...\"} (stable semantic id, preferred), {\"label\": \"...\"}, {\"role\": {\"role\": \"button\", \"name\": \"...\"}}, or {\"node\": \"123\"} (node ids are strings: they exceed JSON's safe integer range).",
         "type": "object"
+    });
+    let any_json = json!(["object", "array", "string", "number", "boolean", "null"]);
+    let quiet_schema = json!({
+        "type": "boolean",
+        "default": false,
+        "description": "Omit the post-action snapshot from the response (lighter for large UIs)."
     });
     json!([
         {
@@ -167,7 +173,11 @@ pub fn tool_definitions() -> Value {
                 "properties": {
                     "action": { "type": "string" },
                     "target": selector_schema,
-                    "args": { "description": "Optional action arguments (any JSON)." }
+                    "args": {
+                        "type": any_json,
+                        "description": "Optional action arguments (any JSON value, NOT a JSON-encoded string)."
+                    },
+                    "quiet": quiet_schema
                 },
                 "required": ["action"]
             }
@@ -179,7 +189,11 @@ pub fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "target": selector_schema,
-                    "value": { "description": "New value (any JSON)." }
+                    "value": {
+                        "type": any_json,
+                        "description": "New value, typed to the widget: string for text fields, number for sliders, boolean for checkboxes."
+                    },
+                    "quiet": quiet_schema
                 },
                 "required": ["target", "value"]
             }
@@ -191,7 +205,8 @@ pub fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "predicate": { "type": "object" },
-                    "timeout_ms": { "type": "integer", "default": 5000 }
+                    "timeout_ms": { "type": "integer", "default": 5000 },
+                    "quiet": quiet_schema
                 },
                 "required": ["predicate"]
             }
@@ -208,7 +223,10 @@ pub fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "name": { "type": "string" },
-                    "args": { "description": "Verb arguments (any JSON)." }
+                    "args": {
+                        "type": any_json,
+                        "description": "Verb arguments (any JSON value, NOT a JSON-encoded string)."
+                    }
                 },
                 "required": ["name"]
             }
@@ -216,8 +234,32 @@ pub fn tool_definitions() -> Value {
     ])
 }
 
+/// Undo host-side stringification: some MCP hosts serialize structured tool
+/// arguments as JSON-encoded *strings*. If `v` is a string that parses to a
+/// non-string JSON value, return the parsed value; otherwise return `v` as-is.
+fn destringify(v: &Value) -> Value {
+    if let Value::String(s) = v {
+        let t = s.trim();
+        if t.starts_with('{') || t.starts_with('[') {
+            if let Ok(parsed) = serde_json::from_str::<Value>(t) {
+                return parsed;
+            }
+        }
+    }
+    v.clone()
+}
+
 fn parse_selector(v: &Value) -> Result<Selector, String> {
-    serde_json::from_value(v.clone()).map_err(|e| format!("invalid selector: {e}"))
+    serde_json::from_value(destringify(v)).map_err(|e| format!("invalid selector: {e}"))
+}
+
+fn parse_quiet(args: &Value) -> bool {
+    match args.get("quiet") {
+        Some(Value::Bool(b)) => *b,
+        // Tolerate stringified booleans from noncompliant hosts.
+        Some(Value::String(s)) => s == "true",
+        _ => false,
+    }
 }
 
 /// Map an MCP tool call onto a protocol `Command`.
@@ -234,18 +276,21 @@ pub fn command_for_tool(name: &str, args: &Value) -> Result<Command, String> {
                 .and_then(Value::as_str)
                 .ok_or("missing `action`")?
                 .to_owned(),
-            args: args.get("args").cloned(),
+            args: args.get("args").map(destringify),
+            quiet: parse_quiet(args),
         }),
         "set_value" => Ok(Command::SetValue {
             target: parse_selector(args.get("target").ok_or("missing `target`")?)?,
+            // Deliberately NOT destringified: a string is a first-class value
+            // for text fields; the schema types `value` so compliant hosts
+            // send numbers/booleans natively.
             value: args.get("value").cloned().ok_or("missing `value`")?,
+            quiet: parse_quiet(args),
         }),
         "wait_for" => {
-            let predicate: Predicate = serde_json::from_value(
-                args.get("predicate")
-                    .cloned()
-                    .ok_or("missing `predicate`")?,
-            )
+            let predicate: Predicate = serde_json::from_value(destringify(
+                args.get("predicate").ok_or("missing `predicate`")?,
+            ))
             .map_err(|e| format!("invalid predicate: {e}"))?;
             let timeout_ms = args
                 .get("timeout_ms")
@@ -254,6 +299,7 @@ pub fn command_for_tool(name: &str, args: &Value) -> Result<Command, String> {
             Ok(Command::WaitFor {
                 predicate,
                 timeout_ms,
+                quiet: parse_quiet(args),
             })
         }
         "screenshot" => Ok(Command::Screenshot),
@@ -263,7 +309,7 @@ pub fn command_for_tool(name: &str, args: &Value) -> Result<Command, String> {
                 .and_then(Value::as_str)
                 .ok_or("missing `name`")?
                 .to_owned(),
-            args: args.get("args").cloned().unwrap_or(Value::Null),
+            args: args.get("args").map(destringify).unwrap_or(Value::Null),
         }),
         other => Err(format!("unknown tool: {other}")),
     }
