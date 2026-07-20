@@ -100,6 +100,8 @@ impl<A: AgentApp> Agent<A> {
     /// newly queued ones. Runs on the UI thread before the app's UI.
     pub fn pre_frame(&mut self, ctx: &egui::Context) {
         self.hub.bind_context_if_needed(ctx);
+        #[cfg(feature = "accesskit-introspection")]
+        crate::introspection::ensure_installed(ctx);
         self.advance_pending(ctx);
         // Drain everything queued so far; commands arriving mid-frame wait for
         // the next repaint (transports request one on enqueue).
@@ -401,53 +403,187 @@ impl<A: AgentApp> Agent<A> {
         }
     }
 
-    /// Actuate a registered widget when the app's dispatch didn't handle the
-    /// action: queue a [`PendingActuation`] the widget helper consumes on the
-    /// next frame it draws.
+    /// Actuate a widget when the app's dispatch didn't handle the action:
+    /// first via the registered-widget registry (semantic ids), then — with
+    /// the `accesskit-introspection` feature — via an injected AccessKit
+    /// `ActionRequest`, which drives plain egui widgets with no app code.
     fn registry_fallback(
         &mut self,
         action: Action,
         reply: flume::Sender<Response>,
         ctx: &egui::Context,
     ) {
-        let (target, actuation, kind) = match &action {
-            Action::Invoke { target, name, .. } => {
-                if name != "click" && name != "toggle" {
-                    let _ = reply.send(Err(AgentError::UnknownAction(name.clone())));
-                    return;
-                }
-                (
-                    target.as_ref(),
-                    PendingActuation::Click,
-                    ActKind::Invoke { result: None },
-                )
-            }
-            Action::SetValue { target, value } => (
-                Some(target),
-                PendingActuation::SetValue(value.clone()),
-                ActKind::SetValue,
-            ),
-        };
-        let Some(target) = target else {
+        let Some(target) = action.target().cloned() else {
             let _ = reply.send(Err(AgentError::UnknownAction(action.name().to_owned())));
             return;
         };
-        let id = match self.resolve_semantic_id(target, ctx) {
-            Ok(id) => id,
-            Err(e) => {
-                let _ = reply.send(Err(e));
+
+        let registry_err = match self.try_registry(&action, &target, ctx) {
+            Ok((id, actuation, kind)) => {
+                registry::queue_actuation(ctx, id.clone(), actuation);
+                self.pending.push(Pending {
+                    reply,
+                    state: Some(PendingState::AwaitingConsume {
+                        id,
+                        kind,
+                        grace_left: self.config().actuation_grace_frames,
+                    }),
+                });
                 return;
             }
+            Err(e) => e,
         };
-        registry::queue_actuation(ctx, id.clone(), actuation);
-        self.pending.push(Pending {
-            reply,
-            state: Some(PendingState::AwaitingConsume {
-                id,
-                kind,
-                grace_left: self.config().actuation_grace_frames,
-            }),
-        });
+
+        #[cfg(feature = "accesskit-introspection")]
+        match self.try_accesskit(&action, &target, ctx) {
+            Ok((kind, injection_frames)) => {
+                // Injected over `injection_frames` passes, then settled.
+                self.pending.push(Pending {
+                    reply,
+                    state: Some(PendingState::Settling {
+                        kind,
+                        frames_left: self.settle_frames() + injection_frames,
+                    }),
+                });
+            }
+            Err(ak_err) => {
+                // Report the more specific failure.
+                let err = if matches!(registry_err, AgentError::TargetNotFound(_))
+                    && !matches!(ak_err, AgentError::TargetNotFound(_))
+                {
+                    ak_err
+                } else {
+                    registry_err
+                };
+                let _ = reply.send(Err(err));
+            }
+        }
+
+        #[cfg(not(feature = "accesskit-introspection"))]
+        {
+            let _ = reply.send(Err(registry_err));
+        }
+    }
+
+    /// Registry (tier 2) actuation: map the action onto a semantic-id widget.
+    fn try_registry(
+        &self,
+        action: &Action,
+        target: &Selector,
+        ctx: &egui::Context,
+    ) -> Result<(String, PendingActuation, ActKind), AgentError> {
+        let (actuation, kind) = match action {
+            Action::Invoke { name, .. } => {
+                if name != "click" && name != "toggle" {
+                    return Err(AgentError::UnknownAction(name.clone()));
+                }
+                (PendingActuation::Click, ActKind::Invoke { result: None })
+            }
+            Action::SetValue { value, .. } => {
+                (PendingActuation::SetValue(value.clone()), ActKind::SetValue)
+            }
+        };
+        let id = self.resolve_semantic_id(target, ctx)?;
+        Ok((id, actuation, kind))
+    }
+
+    /// AccessKit (tier 3) actuation: queue an `ActionRequest` (or emulated
+    /// input sequence) for injection into upcoming passes' raw input — the
+    /// same path a screen reader uses. Returns the actuation kind and how
+    /// many injection passes it needs before settling starts.
+    #[cfg(feature = "accesskit-introspection")]
+    fn try_accesskit(
+        &self,
+        action: &Action,
+        target: &Selector,
+        ctx: &egui::Context,
+    ) -> Result<(ActKind, u32), AgentError> {
+        use accesskit::{Action as AkAction, ActionData, ActionRequest};
+
+        let node = match target {
+            Selector::Node(n) => accesskit::NodeId(*n),
+            other => crate::introspection::resolve(ctx, other)?,
+        };
+        let request = |action, data| ActionRequest {
+            action,
+            target_tree: accesskit::TreeId::ROOT,
+            target_node: node,
+            data,
+        };
+
+        match action {
+            Action::Invoke { name, .. } => {
+                let ak_action = match name.as_str() {
+                    "click" | "toggle" => AkAction::Click,
+                    "focus" => AkAction::Focus,
+                    "increment" => AkAction::Increment,
+                    "decrement" => AkAction::Decrement,
+                    other => return Err(AgentError::UnknownAction(other.to_owned())),
+                };
+                crate::introspection::queue_action_request(ctx, request(ak_action, None));
+                Ok((ActKind::Invoke { result: None }, 1))
+            }
+            Action::SetValue { value, .. } => {
+                if let Some(s) = value.as_str() {
+                    // egui 0.35's TextEdit handles SetTextSelection but not
+                    // SetValue (verified in source), so emulate a user:
+                    // focus the widget, then select-all + delete + type.
+                    let select_all = egui::Event::Key {
+                        key: egui::Key::A,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::COMMAND,
+                    };
+                    let clear = egui::Event::Key {
+                        key: egui::Key::Backspace,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    };
+                    let mut second = vec![select_all, clear];
+                    if !s.is_empty() {
+                        second.push(egui::Event::Text(s.to_owned()));
+                    }
+                    crate::introspection::queue_event_batches(
+                        ctx,
+                        vec![
+                            vec![egui::Event::AccessKitActionRequest(request(
+                                AkAction::Focus,
+                                None,
+                            ))],
+                            second,
+                        ],
+                    );
+                    Ok((ActKind::SetValue, 2))
+                } else if let Some(n) = value.as_f64() {
+                    crate::introspection::queue_action_request(
+                        ctx,
+                        request(AkAction::SetValue, Some(ActionData::NumericValue(n))),
+                    );
+                    Ok((ActKind::SetValue, 1))
+                } else if let Some(want) = value.as_bool() {
+                    match crate::introspection::node_toggled(ctx, node) {
+                        Some(current) if current == want => {} // already there
+                        Some(_) => crate::introspection::queue_action_request(
+                            ctx,
+                            request(AkAction::Click, None),
+                        ),
+                        None => {
+                            return Err(AgentError::BadArgs(
+                                "target is not a toggleable widget".into(),
+                            ));
+                        }
+                    }
+                    Ok((ActKind::SetValue, 1))
+                } else {
+                    Err(AgentError::BadArgs(
+                        "set_value via accesskit needs a string, number, or bool".into(),
+                    ))
+                }
+            }
+        }
     }
 
     /// Map a selector to the semantic id of a registered widget.

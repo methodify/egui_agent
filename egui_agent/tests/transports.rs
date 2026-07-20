@@ -22,7 +22,7 @@ struct EchoApp {
 impl egui_agent::AgentApp for EchoApp {}
 
 /// Drive a wrapped agent under kittest until `done` flips, with a deadline.
-fn pump(mut agent: egui_agent::Agent<EchoApp>, done: Arc<AtomicBool>) {
+fn pump(agent: egui_agent::Agent<EchoApp>, done: Arc<AtomicBool>) {
     let mut harness = egui_kittest::Harness::new_ui_state(
         |ui, agent: &mut egui_agent::Agent<EchoApp>| {
             let ctx = ui.ctx().clone();

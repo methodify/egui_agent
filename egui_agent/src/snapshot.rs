@@ -15,6 +15,7 @@ pub mod roles {
     pub const LABEL: &str = "label";
     pub const VALUE: &str = "value";
     pub const WINDOW: &str = "window";
+    pub const EVENT: &str = "event";
     pub const UNKNOWN: &str = "unknown";
 }
 

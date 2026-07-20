@@ -55,6 +55,7 @@ mod app;
 mod audit;
 mod config;
 mod control;
+pub mod events;
 mod hub;
 mod predicate;
 mod protocol;

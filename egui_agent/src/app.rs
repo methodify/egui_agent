@@ -88,6 +88,11 @@ impl<'a> SnapshotCtx<'a> {
         registry::snapshot_nodes(self.ctx)
     }
 
+    /// Recent domain events emitted via [`crate::events::emit`].
+    pub fn event_nodes(&self) -> Vec<crate::snapshot::Node> {
+        crate::events::event_nodes(self.ctx)
+    }
+
     /// Nodes read from the AccessKit tree egui built last frame.
     /// Empty until a frame has completed with accesskit enabled.
     #[cfg(feature = "accesskit-introspection")]
@@ -107,7 +112,7 @@ pub trait AgentApp {
         let snap = Snapshot::new().nodes(cx.registry_nodes());
         #[cfg(feature = "accesskit-introspection")]
         let snap = snap.nodes(cx.accesskit_nodes());
-        snap
+        snap.nodes(cx.event_nodes())
     }
 
     /// Route named actions to the same methods your buttons call.

@@ -4,47 +4,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A greenfield Rust project building `egui_agent`: a reusable crate that lets an external agent (MCP, socket, or in-process tests) drive and introspect any egui/eframe app through semantic commands and structured snapshots — not screenshots or pixel coordinates.
+`egui_agent`: a reusable crate that lets an external agent (MCP, socket, or in-process tests) drive and introspect any egui/eframe app through semantic commands and structured snapshots — not screenshots or pixel coordinates.
 
-**`docs/egui_agent_design.md` is the source of truth.** Read it before doing any design or implementation work. It specifies the architecture, protocol, milestones, and open research questions. Do not deviate from it silently; if implementation reality contradicts the doc, surface the conflict.
+**`docs/egui_agent_design.md` is the design source of truth**; `README.md` describes the shipped surface. If implementation reality contradicts the design doc, surface the conflict — don't deviate silently.
 
 ## Current state
 
-Pre-implementation. No Cargo workspace exists yet; the repo is not yet a git repository. First implementation steps are `git init`, workspace scaffolding, and milestone M0.
+All milestones M0–M5 implemented and tested (40+ tests, headless via `egui_kittest`). Pinned to egui/eframe/egui_kittest **0.35**, accesskit **0.24** (egui 0.35's pin). The design doc's open research questions (§10/§11/§18) are resolved — see "Resolved version bindings" below.
 
 ## Commands
 
-Standard Cargo workspace (once scaffolded):
-
 - `cargo build --workspace` / `cargo check --workspace`
-- `cargo test --workspace` — M0 onward is tested headlessly via `egui_kittest`; no display server needed
-- `cargo test -p egui_agent <test_name>` — run a single test
-- `cargo clippy --workspace --all-features` and `cargo fmt` before committing
-- Feature-gated code needs explicit flags to compile-check: `cargo check -p egui_agent --features uds` etc.
+- `cargo test --workspace` — everything runs headlessly; no display server needed. Transport tests use real sockets in `/tmp`.
+- `cargo test -p egui_agent --test accesskit` — run one integration-test file; add a name filter for a single test
+- `cargo clippy --workspace --all-features --all-targets` and `cargo fmt --all` before committing (both must be clean)
+- Feature-gated checks: `cargo check -p egui_agent --no-default-features`, `--all-features`
+- Live demo: `DEMO_AGENT=1 cargo run -p demo_app`, then drive it with
+  `cargo run -p egui_agent_mcp --bin egui-agent-cli -- --socket /tmp/egui_agent_demo.sock snapshot`
 
-## Architecture (from the design doc)
+## Architecture
 
-Three concentric layers, each independently testable:
+Three layers (design doc §5), all in `egui_agent/src/`:
 
-1. **Core** (`egui_agent`, transport-agnostic): serde `Command`/`Response` protocol, command queue with oneshot replies, `AgentApp` trait (the only per-app surface: `snapshot()` + `dispatch()`), per-command lifecycle state machine (`Queued → Executed → Settled → Responded`).
-2. **egui integration**: `Agent<A>` wrapper implementing `eframe::App` — drains the command queue on the UI thread inside `update()` before running the inner app, pumps `ctx.request_repaint()`, captures snapshots.
-3. **Adapters** (feature-gated): transports (`uds` default, `ws`, `stdio`, Windows `pipe`) and a separate `egui_agent_mcp` crate so core stays free of tokio/MCP deps. Planned `egui_agent_macros` crate for derives/widget helpers.
+1. **Core (transport-agnostic)**: `protocol.rs` (serde `Command`/`Response`/`Selector`/`Predicate` + wire types), `hub.rs` (`CommandHub`: flume queue + bounded-1 reply channels bridging transport threads → UI thread), `app.rs` (`AgentApp` trait — the only per-app surface), `config.rs`, `predicate.rs`, `events.rs` (domain-event ring buffer).
+2. **egui integration**: `agent.rs` — `Agent<A>` runs the per-command state machine (`Queued → Executed(frame N) → Settled(frame N+1) → Responded`) in `pre_frame`/`post_frame` around the app's UI. `registry.rs` + `widgets.rs` — per-frame registry powering auto-snapshot/auto-actuation of registered widgets. `introspection.rs` — AccessKit tree capture + ActionRequest injection via an `egui::Plugin`. `test_harness.rs` — kittest-backed `TestHarness`.
+3. **Adapters**: `transport/` (uds/ws/stdio/pipe, all blocking std threads — no tokio anywhere), `client.rs` (blocking client used by the MCP crate), `egui_agent_mcp` (hand-rolled MCP stdio JSON-RPC server + `egui-agent-cli`), `egui_agent_macros` (`#[derive(Snapshot)]`).
 
-Load-bearing constraints that shape everything (design doc §4):
+**Actuation resolves in tiers** (`Agent::dispatch_action` → `registry_fallback`): app `dispatch` first; `Unhandled` falls through to registry actuation (semantic ids, one hand-off frame for the widget helper to consume); then AccessKit `ActionRequest` injection for plain egui widgets. Keep this ordering — apps override behavior by handling actions in `dispatch`.
 
-- **Immediate mode**: no retained widgets to call `.click()` on. v1 actuation is semantic dispatch — commands route to the same named methods the app's buttons call.
-- **State lives on the UI thread**: transport threads must marshal commands onto the UI thread via the queue; they never touch app state directly.
-- **Reactive repaint**: eframe sleeps until input. Every enqueue must call `request_repaint()` on a cloned `egui::Context` (it's `Send + Sync`). Never switch to continuous rendering as a workaround.
-- **Settle semantics**: commands whose result depends on post-command UI resolve over two frames (execute frame N, snapshot frame N+1), governed by a configurable settle policy.
+Load-bearing constraints (design doc §4): commands only execute on the UI thread inside the frame loop; every enqueue calls `request_repaint()` on a cloned context (never switch to continuous rendering); actuating commands settle over an extra frame so snapshots aren't stale.
 
-Planned workspace layout (design doc §14): `egui_agent/` (core + transports behind features), `egui_agent_mcp/`, `egui_agent_macros/`.
+## Resolved version bindings (egui 0.35 — re-verify on every egui upgrade)
 
-## Build order
-
-Milestones (design doc §17): **M0** core with no transport, driven entirely by `egui_kittest` → **M1** UDS transport → **M2** MCP adapter → M3–M5 (AccessKit introspection, generic actuation, hardening). Ship M0–M2 first. The core protocol and `AgentApp` trait are the load-bearing decisions — get those reviewed before building transports.
+- **eframe 0.35 split `App::update` into `logic()` + `ui()`.** `Agent<A>` maps `pre_frame` onto `logic` and `post_frame` onto the end of `ui`. `App::on_exit`'s signature changes with eframe's `glow` feature — mirrored by the `egui_agent/glow` passthrough feature.
+- **AccessKit read path**: an `egui::Plugin`'s `output_hook` clones `FullOutput::platform_output::accesskit_update` into a cache (`introspection.rs`); requires `ctx.enable_accesskit()`.
+- **Generic actuation**: the same plugin's `input_hook` injects `egui::Event::AccessKitActionRequest` events — the mechanism kittest and screen readers use. egui 0.35 widgets handle `Click` (buttons/checkboxes), `SetValue` (sliders, NumericValue only). **TextEdit does not handle `SetValue`** — text is set by emulating a user: `Focus` request, then select-all + backspace + `Event::Text` batches injected over successive passes.
+- A11y label quirk: `Role::Label` nodes carry their text in the accesskit `value` property; `introspection::convert` mirrors it into `label` so `Selector::Label` matches.
 
 ## Cautions
 
-- Several egui/AccessKit API bindings are version-dependent and flagged in the doc as "research tasks" (§10, §11, §18): the AccessKit tree read path and in-process `ActionRequest` submission. **Pin an egui version and verify against it — do not assume API names from memory.**
-- Security posture is part of the design, not an afterthought: whole crate behind an `agent` cargo feature, runtime opt-in via config, localhost/UDS only, optional auth token and read-only mode (§13).
-- The same command layer must remain drivable in-process by `egui_kittest` (§16) — every feature should keep the transport-free test path working; use it to test the crate itself.
+- Security posture is part of the design (§13): off unless `Config::enabled`, local-only transports, optional auth token, `read_only` mode, audit log. Don't weaken defaults.
+- Every feature must keep the transport-free kittest path working (§16) — test new commands through `TestHarness`, not just over sockets.
+- The MCP server is deliberately hand-rolled (line-delimited JSON-RPC, no tokio); keep the core free of async runtimes.
+- `egui_agent` has a self-dev-dependency enabling test features so plain `cargo test --workspace` runs the full suite — don't remove it.

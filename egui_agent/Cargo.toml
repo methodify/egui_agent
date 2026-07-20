@@ -46,5 +46,7 @@ base64 = { version = "0.22", optional = true }
 # Self-dependency turning on the features our tests exercise, so a plain
 # `cargo test --workspace` runs the full suite.
 egui_agent = { path = ".", features = ["test-harness", "stdio", "ws", "pipe", "accesskit-introspection", "screenshot", "glow"] }
+egui_agent_macros = { path = "../egui_agent_macros" }
 egui_kittest.workspace = true
+serde.workspace = true
 serde_json.workspace = true

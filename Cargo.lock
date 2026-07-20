@@ -1011,6 +1011,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_agent",
+ "egui_agent_macros",
  "egui_kittest",
  "flume",
  "image",
