@@ -1040,6 +1040,7 @@ dependencies = [
  "egui_agent",
  "egui_kittest",
  "env_logger",
+ "interprocess",
  "log",
  "serde",
  "serde_json",

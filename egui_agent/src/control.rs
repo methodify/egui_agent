@@ -53,7 +53,7 @@ impl Control {
     fn start_transport(&self) {
         match &self.hub.config().transport {
             Transport::None => {}
-            #[cfg(feature = "uds")]
+            #[cfg(all(feature = "uds", unix))]
             Transport::UnixSocket(path) => {
                 crate::transport::uds::serve(self.hub.clone(), path.clone());
             }

@@ -2,12 +2,14 @@
 //!
 //! A thin MCP server (stdio transport, line-delimited JSON-RPC 2.0) that
 //! exposes the core commands as tools and forwards each call as a
-//! `Command` round-trip to a running app over its UDS control socket.
+//! `Command` round-trip to a running app over its control channel — a Unix
+//! domain socket (Linux/macOS) or a named pipe / local socket (Windows).
 //!
 //! No async runtime: MCP's stdio transport is a line protocol, and the app
 //! connection is the blocking `egui_agent::client`.
 
 use std::io::{BufRead, Write};
+#[cfg(unix)]
 use std::path::PathBuf;
 
 use egui_agent::client::Client;
@@ -17,17 +19,66 @@ use serde_json::{json, Value};
 /// Supported MCP protocol revisions (newest first).
 const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
-/// Connection settings for the app's control socket.
+/// Where the running app's control channel lives.
+#[derive(Debug, Clone)]
+pub enum Endpoint {
+    /// Unix domain socket path (`--socket`), Linux/macOS only.
+    #[cfg(unix)]
+    Uds(PathBuf),
+    /// Named local socket (`--pipe`): a named pipe on Windows, a namespaced
+    /// Unix socket elsewhere. Matches `egui_agent::Transport::Pipe`.
+    Pipe(String),
+}
+
+impl std::fmt::Display for Endpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            #[cfg(unix)]
+            Endpoint::Uds(path) => write!(f, "unix socket {path:?}"),
+            Endpoint::Pipe(name) => write!(f, "local socket/pipe {name:?}"),
+        }
+    }
+}
+
+/// One connected client, whichever stream type the endpoint needs.
+enum AnyClient {
+    #[cfg(unix)]
+    Uds(Client<std::os::unix::net::UnixStream>),
+    Pipe(Client<interprocess::local_socket::Stream>),
+}
+
+impl AnyClient {
+    fn request(&mut self, cmd: Command) -> std::io::Result<Response> {
+        match self {
+            #[cfg(unix)]
+            AnyClient::Uds(c) => c.request(cmd),
+            AnyClient::Pipe(c) => c.request(cmd),
+        }
+    }
+}
+
+/// Lazily-connected handle to the app's control channel.
 pub struct AppConnection {
-    pub socket: PathBuf,
+    pub endpoint: Endpoint,
     pub token: Option<String>,
-    client: Option<Client<std::os::unix::net::UnixStream>>,
+    client: Option<AnyClient>,
 }
 
 impl AppConnection {
+    /// Connect over a Unix domain socket (Linux/macOS).
+    #[cfg(unix)]
     pub fn new(socket: PathBuf, token: Option<String>) -> Self {
+        Self::from_endpoint(Endpoint::Uds(socket), token)
+    }
+
+    /// Connect over a named local socket / Windows named pipe.
+    pub fn pipe(name: String, token: Option<String>) -> Self {
+        Self::from_endpoint(Endpoint::Pipe(name), token)
+    }
+
+    pub fn from_endpoint(endpoint: Endpoint, token: Option<String>) -> Self {
         Self {
-            socket,
+            endpoint,
             token,
             client: None,
         }
@@ -48,8 +99,42 @@ impl AppConnection {
         }
     }
 
-    fn connect(&self) -> std::io::Result<Client<std::os::unix::net::UnixStream>> {
-        egui_agent::client::connect_uds(&self.socket, self.token.as_deref())
+    fn connect(&self) -> std::io::Result<AnyClient> {
+        let token = self.token.as_deref();
+        match &self.endpoint {
+            #[cfg(unix)]
+            Endpoint::Uds(path) => Ok(AnyClient::Uds(egui_agent::client::connect_uds(
+                path, token,
+            )?)),
+            Endpoint::Pipe(name) => Ok(AnyClient::Pipe(egui_agent::client::connect_pipe(
+                name, token,
+            )?)),
+        }
+    }
+}
+
+/// Resolve an endpoint from `--socket` / `--pipe` style options (either CLI
+/// flags or the `EGUI_AGENT_SOCKET` / `EGUI_AGENT_PIPE` env vars).
+pub fn resolve_endpoint(
+    socket: Option<std::path::PathBuf>,
+    pipe: Option<String>,
+) -> Result<Endpoint, String> {
+    match (socket, pipe) {
+        (Some(_), Some(_)) => Err("pass either --socket or --pipe, not both".into()),
+        (None, Some(name)) => Ok(Endpoint::Pipe(name)),
+        #[cfg(unix)]
+        (Some(path), None) => Ok(Endpoint::Uds(path)),
+        #[cfg(not(unix))]
+        (Some(_), None) => Err(
+            "--socket (Unix domain sockets) is not available on Windows; use --pipe <NAME> \
+                 to connect to an app serving Transport::Pipe(\"<NAME>\")"
+                .into(),
+        ),
+        (None, None) => Err(
+            "missing endpoint: pass --socket <PATH> (or EGUI_AGENT_SOCKET) on Linux/macOS, \
+             or --pipe <NAME> (or EGUI_AGENT_PIPE) on any platform"
+                .into(),
+        ),
     }
 }
 
@@ -265,8 +350,8 @@ fn handle_request(
                 Ok(Ok(body)) => Ok(tool_ok(&body)),
                 Ok(Err(agent_err)) => Ok(tool_error(format_agent_error(&agent_err))),
                 Err(io) => Ok(tool_error(format!(
-                    "cannot reach app at {:?}: {io}. Is the app running with its agent socket enabled?",
-                    conn.socket
+                    "cannot reach app at {}: {io}. Is the app running with its agent control channel enabled?",
+                    conn.endpoint
                 ))),
             }
         }

@@ -4,7 +4,7 @@
 //! All transports are local-only by construction (UDS / named pipe /
 //! 127.0.0.1) and run on plain std threads — no async runtime in the core.
 
-#[cfg(feature = "uds")]
+#[cfg(all(feature = "uds", unix))]
 pub mod uds;
 
 #[cfg(feature = "stdio")]
@@ -16,7 +16,7 @@ pub mod ws;
 #[cfg(feature = "pipe")]
 pub mod pipe;
 
-#[cfg(any(feature = "uds", feature = "stdio", feature = "pipe"))]
+#[cfg(any(all(feature = "uds", unix), feature = "stdio", feature = "pipe"))]
 mod line_protocol {
     use std::io::{BufRead, Write};
 
@@ -82,5 +82,5 @@ mod line_protocol {
     }
 }
 
-#[cfg(any(feature = "uds", feature = "stdio", feature = "pipe"))]
+#[cfg(any(all(feature = "uds", unix), feature = "stdio", feature = "pipe"))]
 pub(crate) use line_protocol::serve_connection;

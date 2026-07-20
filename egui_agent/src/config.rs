@@ -10,7 +10,7 @@ pub enum Transport {
     #[default]
     None,
     /// Unix domain socket at the given path, newline-delimited JSON.
-    #[cfg(feature = "uds")]
+    #[cfg(all(feature = "uds", unix))]
     UnixSocket(PathBuf),
     /// WebSocket bound to `127.0.0.1:port`.
     #[cfg(feature = "ws")]

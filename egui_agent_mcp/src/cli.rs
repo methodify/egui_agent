@@ -17,6 +17,7 @@ use serde_json::Value;
 
 fn main() {
     let mut socket: Option<PathBuf> = std::env::var_os("EGUI_AGENT_SOCKET").map(Into::into);
+    let mut pipe: Option<String> = std::env::var("EGUI_AGENT_PIPE").ok();
     let mut token: Option<String> = std::env::var("EGUI_AGENT_TOKEN").ok();
     let mut timeout_ms: u64 = 5000;
     let mut target: Option<String> = None;
@@ -27,6 +28,7 @@ fn main() {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--socket" => socket = args.next().map(Into::into),
+            "--pipe" => pipe = args.next(),
             "--token" => token = args.next(),
             "--timeout" => {
                 timeout_ms = args
@@ -44,10 +46,8 @@ fn main() {
         }
     }
 
-    let Some(socket) = socket else {
-        die("missing --socket (or EGUI_AGENT_SOCKET)")
-    };
-    let mut conn = AppConnection::new(socket, token);
+    let endpoint = egui_agent_mcp::resolve_endpoint(socket, pipe).unwrap_or_else(|msg| die(&msg));
+    let mut conn = AppConnection::from_endpoint(endpoint, token);
 
     let Some(verb) = positional.first().cloned() else {
         usage();
@@ -186,7 +186,7 @@ fn repl(conn: &mut AppConnection) {
 fn usage() {
     eprintln!(
         "egui-agent-cli: drive a running egui_agent app\n\n\
-         Usage: egui-agent-cli --socket <PATH> [--token <TOKEN>] <verb> [args]\n\n\
+         Usage: egui-agent-cli (--socket <PATH> | --pipe <NAME>) [--token <TOKEN>] <verb> [args]\n\n\
          Verbs:\n\
          \x20 snapshot\n\
          \x20 query '<selector-json>'\n\
@@ -196,7 +196,9 @@ fn usage() {
          \x20 screenshot\n\
          \x20 custom <name> [--args '<json>']\n\
          \x20 repl\n\n\
-         Env: EGUI_AGENT_SOCKET, EGUI_AGENT_TOKEN"
+         --socket: Unix domain socket path (Linux/macOS)\n\
+         --pipe:   local socket name / Windows named pipe (Transport::Pipe)\n\
+         Env: EGUI_AGENT_SOCKET, EGUI_AGENT_PIPE, EGUI_AGENT_TOKEN"
     );
 }
 

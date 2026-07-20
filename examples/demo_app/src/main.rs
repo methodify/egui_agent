@@ -106,8 +106,22 @@ impl eframe::App for DemoApp {
 
 fn main() -> eframe::Result {
     env_logger::init();
+    // Default: UDS on Linux/macOS, named pipe on Windows.
+    // DEMO_AGENT_PIPE=<name> forces the pipe transport on any platform.
+    let transport = if let Ok(name) = std::env::var("DEMO_AGENT_PIPE") {
+        egui_agent::Transport::Pipe(name)
+    } else {
+        #[cfg(unix)]
+        {
+            egui_agent::Transport::UnixSocket("/tmp/egui_agent_demo.sock".into())
+        }
+        #[cfg(not(unix))]
+        {
+            egui_agent::Transport::Pipe("egui_agent_demo".into())
+        }
+    };
     let control = egui_agent::Control::spawn(egui_agent::Config {
-        transport: egui_agent::Transport::UnixSocket("/tmp/egui_agent_demo.sock".into()),
+        transport,
         auth: egui_agent::Auth::from_env("DEMO_AGENT_TOKEN"),
         enabled: std::env::var("DEMO_AGENT").is_ok(),
         ..Default::default()

@@ -15,7 +15,8 @@ name = "egui-agent-cli"
 path = "src/cli.rs"
 
 [dependencies]
-egui_agent = { path = "../egui_agent", default-features = false, features = ["uds"] }
+egui_agent = { path = "../egui_agent", default-features = false, features = ["uds", "pipe"] }
+interprocess = "2"
 serde.workspace = true
 serde_json.workspace = true
 log = { workspace = true }

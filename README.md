@@ -44,7 +44,7 @@ $ egui-agent-cli --socket /tmp/myapp.agent.sock snapshot
 $ egui-agent-cli --socket /tmp/myapp.agent.sock invoke click --target '{"id":"increment"}'
 ```
 
-Or connect an MCP host (e.g. Claude) to `egui-agent-mcp --socket /tmp/myapp.agent.sock` and drive the app with the `snapshot` / `query` / `invoke` / `set_value` / `wait_for` / `screenshot` / `custom` tools.
+Or connect an MCP host (e.g. Claude) to `egui-agent-mcp --socket /tmp/myapp.agent.sock` and drive the app with the `snapshot` / `query` / `invoke` / `set_value` / `wait_for` / `screenshot` / `custom` tools. On Windows, both tools take `--pipe <name>` to reach an app serving `Transport::Pipe`.
 
 ## How it works
 

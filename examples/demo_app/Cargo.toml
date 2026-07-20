@@ -6,7 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-egui_agent = { path = "../../egui_agent", features = ["uds", "stdio", "accesskit-introspection", "screenshot", "glow"] }
+egui_agent = { path = "../../egui_agent", features = ["uds", "pipe", "stdio", "accesskit-introspection", "screenshot", "glow"] }
 egui_agent_macros = { path = "../../egui_agent_macros" }
 eframe = { workspace = true, features = ["glow", "wayland", "x11", "default_fonts", "accesskit"] }
 egui.workspace = true

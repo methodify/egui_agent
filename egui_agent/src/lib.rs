@@ -63,10 +63,15 @@ pub mod registry;
 mod snapshot;
 pub mod widgets;
 
-#[cfg(any(feature = "uds", feature = "ws", feature = "stdio", feature = "pipe"))]
+#[cfg(any(
+    all(feature = "uds", unix),
+    feature = "ws",
+    feature = "stdio",
+    feature = "pipe"
+))]
 mod transport;
 
-#[cfg(feature = "uds")]
+#[cfg(any(all(feature = "uds", unix), feature = "pipe"))]
 pub mod client;
 
 #[cfg(feature = "accesskit-introspection")]

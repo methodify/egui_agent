@@ -160,6 +160,19 @@ $ claude mcp add myapp -- egui-agent-mcp --socket /tmp/myapp.agent.sock
 }
 ```
 
+**On Windows**, connect to the app's named pipe instead of a socket:
+
+```json
+{
+  "mcpServers": {
+    "myapp": {
+      "command": "egui-agent-mcp",
+      "args": ["--pipe", "myapp.agent"]
+    }
+  }
+}
+```
+
 The connection to the app is lazy: the MCP server can start before the app does, and it
 reconnects once after an app restart mid-session.
 
@@ -225,7 +238,10 @@ fn search_flow() {
 
 ## 7. Windows
 
-There is no UDS on Windows; use the local-socket transport instead:
+There is no UDS on Windows; use the `pipe` transport (a Windows named pipe under the
+hood, via the `interprocess` crate) on both sides instead.
+
+App side:
 
 ```toml
 egui_agent = { git = "https://github.com/methodify/egui_agent", features = ["glow", "pipe"] }
@@ -235,14 +251,34 @@ egui_agent = { git = "https://github.com/methodify/egui_agent", features = ["glo
 transport: egui_agent::Transport::Pipe("myapp.agent".into()),
 ```
 
-(The `egui-agent-mcp`/`egui-agent-cli` binaries currently speak UDS only, so on Windows
-drive the app over the `ws` transport or a small custom client until pipe support lands
-in the tools.)
+Tool side — everything accepts `--pipe <NAME>` (or `EGUI_AGENT_PIPE`) in place of
+`--socket`:
+
+```console
+$ egui-agent-cli --pipe myapp.agent snapshot
+$ egui-agent-mcp --pipe myapp.agent          # for MCP host configs, see §4
+```
+
+The pipe name is just a name (no `\\.\pipe\` prefix, no filesystem path) and must
+match between `Transport::Pipe("...")` and `--pipe ...`. A cross-platform app can use
+UDS on Linux/macOS and the pipe on Windows:
+
+```rust
+#[cfg(unix)]
+let transport = egui_agent::Transport::UnixSocket("/tmp/myapp.agent.sock".into());
+#[cfg(not(unix))]
+let transport = egui_agent::Transport::Pipe("myapp.agent".into());
+```
+
+The `pipe` transport also works on Linux/macOS (as a namespaced Unix socket), so the
+whole flow is testable on either platform.
 
 ## Troubleshooting
 
 - **"cannot reach app at ..."** — the app isn't running, wasn't started with its
-  opt-in env var set, or the socket path differs. `ls -la` the socket path.
+  opt-in env var set, or the socket path / pipe name differs.
+- **"--socket ... is not available on Windows"** — Unix domain sockets don't exist
+  there; serve `Transport::Pipe("name")` in the app and pass `--pipe name` (see §7).
 - **`unauthorized`** — the app was configured with an auth token; pass `--token` /
   `EGUI_AGENT_TOKEN` to the CLI or set `env` in the MCP config.
 - **`read_only`** — the app enabled `Config::read_only`; observation commands still work.

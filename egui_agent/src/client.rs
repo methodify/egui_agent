@@ -2,6 +2,7 @@
 //! MCP adapter, and out-of-process tests.
 
 use std::io::{BufRead, BufReader, Write};
+#[cfg(all(feature = "uds", unix))]
 use std::path::Path;
 
 use crate::protocol::{AgentError, Command, Response, WireRequest, WireResponse};
@@ -111,11 +112,27 @@ where
 }
 
 /// Connect to a UDS control socket.
-#[cfg(feature = "uds")]
+#[cfg(all(feature = "uds", unix))]
 pub fn connect_uds(
     path: impl AsRef<Path>,
     token: Option<&str>,
 ) -> std::io::Result<Client<std::os::unix::net::UnixStream>> {
     let stream = std::os::unix::net::UnixStream::connect(path)?;
+    Client::from_stream(stream, token)
+}
+
+/// Connect to a named local-socket control channel served by
+/// [`crate::Transport::Pipe`]: a named pipe on Windows, a namespaced Unix
+/// socket elsewhere. The name must match the server's (e.g. `"myapp.agent"`).
+#[cfg(feature = "pipe")]
+pub fn connect_pipe(
+    name: &str,
+    token: Option<&str>,
+) -> std::io::Result<Client<interprocess::local_socket::Stream>> {
+    use interprocess::local_socket::traits::Stream as _;
+    use interprocess::local_socket::{GenericNamespaced, Stream, ToNsName};
+
+    let ns_name = name.to_owned().to_ns_name::<GenericNamespaced>()?;
+    let stream = Stream::connect(ns_name)?;
     Client::from_stream(stream, token)
 }

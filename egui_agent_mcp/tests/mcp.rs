@@ -16,18 +16,36 @@ struct MiniApp {
 
 impl egui_agent::AgentApp for MiniApp {}
 
-/// Run a scripted MCP session against a UDS-served app; returns one parsed
+/// Which control-channel flavor a session should use.
+enum Channel {
+    Uds,
+    Pipe,
+}
+
+/// Run a scripted MCP session against a served app; returns one parsed
 /// JSON-RPC response per request line.
-fn run_session(requests: Vec<Value>, token: Option<&str>) -> Vec<Value> {
-    let sock = std::env::temp_dir().join(format!(
-        "egui_agent_mcp_test_{}_{:?}.sock",
+fn run_session_over(channel: Channel, requests: Vec<Value>, token: Option<&str>) -> Vec<Value> {
+    let unique = format!(
+        "egui_agent_mcp_test_{}_{:?}",
         std::process::id(),
         std::thread::current().id()
-    ));
+    );
+    let sock = std::env::temp_dir().join(format!("{unique}.sock"));
     let _ = std::fs::remove_file(&sock);
 
+    let (transport, endpoint) = match channel {
+        Channel::Uds => (
+            Transport::UnixSocket(sock.clone()),
+            egui_agent_mcp::Endpoint::Uds(sock.clone()),
+        ),
+        Channel::Pipe => (
+            Transport::Pipe(unique.clone()),
+            egui_agent_mcp::Endpoint::Pipe(unique.clone()),
+        ),
+    };
+
     let control = Control::spawn(Config {
-        transport: Transport::UnixSocket(sock.clone()),
+        transport,
         auth: token.map(|t| Auth::Token(t.into())).unwrap_or(Auth::None),
         ..Default::default()
     });
@@ -35,17 +53,12 @@ fn run_session(requests: Vec<Value>, token: Option<&str>) -> Vec<Value> {
 
     let done = Arc::new(AtomicBool::new(false));
     let done2 = done.clone();
-    let sock2 = sock.clone();
     let token = token.map(str::to_owned);
     let mcp = std::thread::spawn(move || {
-        // Wait until the socket exists before starting the MCP loop.
-        for _ in 0..200 {
-            if sock2.exists() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        let mut conn = egui_agent_mcp::AppConnection::new(sock2, token);
+        // Give the listener a moment to bind; the connection itself also
+        // retries lazily inside AppConnection.
+        std::thread::sleep(Duration::from_millis(50));
+        let mut conn = egui_agent_mcp::AppConnection::from_endpoint(endpoint, token);
         let input = requests
             .iter()
             .map(|r| serde_json::to_string(r).unwrap())
@@ -82,6 +95,10 @@ fn run_session(requests: Vec<Value>, token: Option<&str>) -> Vec<Value> {
     out.lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect()
+}
+
+fn run_session(requests: Vec<Value>, token: Option<&str>) -> Vec<Value> {
+    run_session_over(Channel::Uds, requests, token)
 }
 
 #[test]
@@ -186,4 +203,38 @@ fn init_tools(list_response: &Value) -> Vec<String> {
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_owned())
         .collect()
+}
+
+#[test]
+fn mcp_session_over_pipe() {
+    let responses = run_session_over(
+        Channel::Pipe,
+        vec![
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": { "name": "wait_for", "arguments": {
+                        "predicate": { "exists": { "id": "label" } },
+                        "timeout_ms": 5000 } } }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                    "params": { "name": "set_value", "arguments": {
+                        "target": { "id": "label" }, "value": "via pipe" } } }),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": { "name": "snapshot", "arguments": {} } }),
+        ],
+        Some("pipe-token"),
+    );
+    assert_eq!(responses.len(), 3);
+    assert_eq!(
+        responses[0]["result"]["isError"], false,
+        "{:?}",
+        responses[0]
+    );
+    assert_eq!(
+        responses[1]["result"]["isError"], false,
+        "{:?}",
+        responses[1]
+    );
+    let snap_text = responses[2]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(snap_text.contains("via pipe"), "{snap_text}");
 }
