@@ -5,6 +5,21 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
+## [0.2.2] - 2026-07-20
+
+### Added
+
+- Regression tests pinning down CollapsingHeader actuation after a field
+  report that headers "ignore" accesskit clicks. Not reproducible on 0.2.1:
+  egui 0.35 headers register a `button` a11y node and its interact path
+  honors accesskit Click requests — expand/collapse works by label and by
+  node id, including nested in a ScrollArea. The report most likely predates
+  the 0.2.0 node-id fixes, when corrupted node ids silently no-oped.
+  If it recurs, capture the failing selector + `query` output.
+- USAGE.md: guidance on collapsed/conditional UI (content nodes don't exist
+  until drawn — click the header, `wait_for` the content, then interact; or
+  prefer app-level dispatch verbs for scripted flows).
+
 ## [0.2.1] - 2026-07-20
 
 ### Fixed

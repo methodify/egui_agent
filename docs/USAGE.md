@@ -21,7 +21,7 @@ build records the exact commit in your `Cargo.lock`; later `cargo update` will m
 To pin explicitly, use a release tag (see `CHANGELOG.md` for versions):
 
 ```toml
-egui_agent = { git = "https://github.com/methodify/egui_agent", tag = "v0.2.1", features = ["glow"] }
+egui_agent = { git = "https://github.com/methodify/egui_agent", tag = "v0.2.2", features = ["glow"] }
 ```
 
 The wire protocol can change between 0.x versions (e.g. 0.2.0 changed node-id
@@ -133,7 +133,7 @@ egui_agent = { git = "https://github.com/methodify/egui_agent", features = ["glo
 $ cargo install --git https://github.com/methodify/egui_agent egui_agent_mcp
 ```
 
-(Add `--tag v0.2.1` to install a pinned release matching your app's dependency.)
+(Add `--tag v0.2.2` to install a pinned release matching your app's dependency.)
 
 This installs two binaries into `~/.cargo/bin`:
 
@@ -191,6 +191,13 @@ set_value {"target": {"id": "query"}, "value": "rust"}
 invoke    {"target": {"id": "search"}, "action": "click"}
 wait_for  {"predicate": {"exists": {"label": "results: 10"}}, "timeout_ms": 3000}
 ```
+
+Collapsed/conditional UI: immediate mode means widgets that aren't drawn don't
+exist — content inside a collapsed `CollapsingHeader` (or an unopened window)
+is absent from snapshots until revealed. The header itself is a clickable
+`button` node: click it, `wait_for` the content, then interact. For scripted
+flows, an app-level dispatch verb (e.g. `open_settings`) is often the sturdier
+pattern than driving disclosure widgets.
 
 Notes for hosts/agents: node ids in snapshots and `{"node": ...}` selectors are
 **strings** (they exceed JSON's safe integer range); `args`/`value` must be typed
