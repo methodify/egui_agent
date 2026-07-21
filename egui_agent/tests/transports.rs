@@ -257,3 +257,90 @@ fn pipe_round_trip() {
     pump(agent, done);
     client.join().unwrap().expect("pipe client thread");
 }
+
+/// Regression: a long `wait_for` must not be killed by the transport's
+/// liveness guard (`request_timeout`), and the transport re-pumps repaints so
+/// the predicate keeps evaluating.
+#[test]
+fn long_wait_for_outlives_the_liveness_guard() {
+    let dir = std::env::temp_dir().join(format!("egui_agent_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("uds_longwait.sock");
+    let _ = std::fs::remove_file(&sock);
+
+    let control = Control::spawn(Config {
+        transport: Transport::UnixSocket(sock.clone()),
+        // Liveness guard far shorter than the wait: the old code returned
+        // Timeout after this interval regardless of wait_for's own deadline.
+        request_timeout: Duration::from_millis(200),
+        poll_interval: Duration::from_millis(20),
+        ..Default::default()
+    });
+    let agent = egui_agent::wrap(EchoApp::default(), control);
+
+    let done = Arc::new(AtomicBool::new(false));
+    let done2 = done.clone();
+    let sock2 = sock.clone();
+    let client = std::thread::spawn(move || {
+        let result = (|| -> Result<(), String> {
+            let mut conn = None;
+            for _ in 0..100 {
+                match egui_agent::client::connect_uds(&sock2, None) {
+                    Ok(c) => {
+                        conn = Some(c);
+                        break;
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(10)),
+                }
+            }
+            let mut conn = conn.ok_or("could not connect")?;
+            let started = Instant::now();
+            let body = conn
+                .request(Command::WaitFor {
+                    predicate: egui_agent::Predicate::ValueEq {
+                        target: Selector::Id("ticked".into()),
+                        value: json!(true),
+                    },
+                    timeout_ms: 10_000,
+                    quiet: true,
+                })
+                .map_err(|e| e.to_string())?
+                .map_err(|e| format!("agent error (killed after {:?}?): {e}", started.elapsed()))?;
+            if !matches!(body, ResponseBody::Satisfied { .. }) {
+                return Err(format!("unexpected body: {body:?}"));
+            }
+            let waited = started.elapsed();
+            if waited < Duration::from_millis(500) {
+                return Err(format!("resolved suspiciously early: {waited:?}"));
+            }
+            Ok(())
+        })();
+        done2.store(true, Ordering::SeqCst);
+        result
+    });
+
+    // Pump frames; the exposed value flips ~600ms in — three liveness
+    // intervals after the wait began.
+    let start = Instant::now();
+    let mut harness = egui_kittest::Harness::new_ui_state(
+        |ui, agent: &mut egui_agent::Agent<EchoApp>| {
+            let ctx = ui.ctx().clone();
+            agent.pre_frame(&ctx);
+            egui_agent::widgets::expose(
+                ui.ctx(),
+                "ticked",
+                start.elapsed() >= Duration::from_millis(600),
+            );
+            agent.post_frame(&ctx);
+        },
+        agent,
+    );
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !done.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "long wait_for test timed out");
+        harness.step();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    client.join().unwrap().expect("client thread");
+    let _ = std::fs::remove_file(sock);
+}

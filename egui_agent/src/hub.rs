@@ -51,10 +51,41 @@ impl CommandHub {
     }
 
     /// Enqueue and block for the response (transport threads).
-    /// Times out per `Config::request_timeout`.
+    ///
+    /// Most commands are bounded by `Config::request_timeout` (a liveness
+    /// guard against a dead UI thread). `WaitFor` is special-cased twice:
+    /// its transport deadline is `timeout_ms + request_timeout` so long waits
+    /// aren't killed by the liveness guard, and while waiting this thread
+    /// re-pumps `request_repaint()` every poll interval — an idle (or hidden)
+    /// app produces no frames on its own, and without frames the predicate
+    /// would never re-evaluate.
     pub fn request(&self, cmd: Command) -> Response {
-        let timeout = self.shared.cfg.request_timeout;
-        self.request_with_timeout(cmd, timeout)
+        let liveness = self.shared.cfg.request_timeout;
+        if let Command::WaitFor { timeout_ms, .. } = &cmd {
+            let deadline =
+                std::time::Instant::now() + Duration::from_millis(*timeout_ms) + liveness;
+            let poll = self.shared.cfg.poll_interval;
+            let rx = self.submit(cmd);
+            loop {
+                match rx.recv_timeout(poll) {
+                    Ok(resp) => return resp,
+                    Err(flume::RecvTimeoutError::Disconnected) => {
+                        return Err(AgentError::Internal("UI thread dropped the command".into()));
+                    }
+                    Err(flume::RecvTimeoutError::Timeout) => {
+                        if std::time::Instant::now() >= deadline {
+                            return Err(AgentError::Timeout(format!(
+                                "UI thread did not answer within the wait_for \
+                                 deadline plus {liveness:?}"
+                            )));
+                        }
+                        // Keep the UI thread polling the predicate.
+                        self.request_repaint();
+                    }
+                }
+            }
+        }
+        self.request_with_timeout(cmd, liveness)
     }
 
     pub fn request_with_timeout(&self, cmd: Command, timeout: Duration) -> Response {

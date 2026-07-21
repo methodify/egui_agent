@@ -5,6 +5,23 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
+## [0.2.1] - 2026-07-20
+
+### Fixed
+
+- **`wait_for` no longer stalls on an idle or hidden app.** The predicate is
+  re-evaluated once per frame, but an idle app produces no frames: repaint
+  scheduling only ran at the end of the `ui` pass, which eframe skips entirely
+  for hidden/minimized windows, so a pending `wait_for` could stop advancing.
+  Two-sided fix: the transport thread now re-pumps `request_repaint()` every
+  `poll_interval` while a `wait_for` is outstanding (works even when hidden —
+  eframe still runs `logic` on repaint requests), and the agent also schedules
+  pending-command repaints from the pre-pass, not just the post-pass.
+- **Long waits are no longer killed by the liveness guard.** The transport
+  bounded every command by `Config::request_timeout` (default 10s), so e.g. a
+  300s `wait_for` died at 10s. `wait_for`'s transport deadline is now
+  `timeout_ms + request_timeout`; other commands keep the flat guard.
+
 ## [0.2.0] - 2026-07-20
 
 First-use feedback release. **Contains a breaking wire-format change** — keep

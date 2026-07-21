@@ -110,12 +110,22 @@ impl<A: AgentApp> Agent<A> {
         while let Ok(env) = self.hub.shared.rx.try_recv() {
             self.execute(env, ctx);
         }
+        // Schedule here as well as in post_frame: when the window is hidden,
+        // eframe runs `logic` (→ pre_frame) but not `ui` (→ post_frame), and
+        // pending commands must keep producing frames to advance.
+        self.schedule_repaints(ctx);
     }
 
     /// Lifecycle post-pass: registry bookkeeping and repaint scheduling.
     /// Runs on the UI thread after the app's UI.
     pub fn post_frame(&mut self, ctx: &egui::Context) {
         registry::end_frame(ctx);
+        self.schedule_repaints(ctx);
+    }
+
+    /// Keep frames coming while commands are pending: settling/actuating
+    /// commands need the very next frame; WaitFor polls at `poll_interval`.
+    fn schedule_repaints(&self, ctx: &egui::Context) {
         let mut needs_frame = false;
         let mut needs_poll = false;
         for p in &self.pending {

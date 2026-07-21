@@ -160,3 +160,49 @@ fn screenshot_without_renderer_is_not_supported() {
         .expect_err("no renderer headlessly");
     assert!(matches!(err, AgentError::NotSupported(_)), "{err:?}");
 }
+
+/// Regression: with a hidden window, eframe runs `logic` (→ `pre_frame`) but
+/// never `ui` (→ `post_frame`). WaitFor must still advance, resolve, and keep
+/// scheduling frames from the pre-pass alone.
+#[test]
+fn wait_for_advances_without_ui_passes() {
+    struct S {
+        ready: bool,
+    }
+    impl AgentApp for S {
+        fn snapshot(&self, _cx: &egui_agent::SnapshotCtx<'_>) -> egui_agent::Snapshot {
+            egui_agent::Snapshot::new().node(egui_agent::Node::value("ready", self.ready))
+        }
+    }
+
+    let control = egui_agent::Control::spawn(Config::default());
+    let hub = control.hub();
+    let mut agent = egui_agent::wrap(S { ready: false }, control);
+    let ctx = egui::Context::default();
+
+    let rx = hub.submit(Command::WaitFor {
+        predicate: Predicate::ValueEq {
+            target: Selector::Id("ready".into()),
+            value: serde_json::json!(true),
+        },
+        timeout_ms: 5000,
+        quiet: true,
+    });
+
+    // Logic-only frames: no ui pass, no post_frame.
+    agent.pre_frame(&ctx);
+    assert!(rx.try_recv().is_err(), "not satisfied yet");
+    agent.pre_frame(&ctx);
+    assert!(
+        rx.try_recv().is_err(),
+        "still pending across logic-only frames"
+    );
+
+    agent.inner_mut().ready = true;
+    agent.pre_frame(&ctx);
+    let body = rx
+        .try_recv()
+        .expect("resolved via logic-only frames")
+        .expect("satisfied");
+    assert!(matches!(body, ResponseBody::Satisfied { .. }), "{body:?}");
+}
