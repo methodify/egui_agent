@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-All milestones M0–M5 implemented and tested (40+ tests, headless via `egui_kittest`). Pinned to egui/eframe/egui_kittest **0.35**, accesskit **0.24** (egui 0.35's pin). The design doc's open research questions (§10/§11/§18) are resolved — see "Resolved version bindings" below.
+All milestones M0–M5 implemented and tested (50+ tests, headless via `egui_kittest`). Pinned to egui/eframe/egui_kittest **0.36**, accesskit **0.24** (egui 0.36's pin; unchanged from 0.35). The design doc's open research questions (§10/§11/§18) are resolved — see "Resolved version bindings" below.
 
 ## Commands
 
@@ -34,11 +34,13 @@ Three layers (design doc §5), all in `egui_agent/src/`:
 
 Load-bearing constraints (design doc §4): commands only execute on the UI thread inside the frame loop; every enqueue calls `request_repaint()` on a cloned context (never switch to continuous rendering); actuating commands settle over an extra frame so snapshots aren't stale.
 
-## Resolved version bindings (egui 0.35 — re-verify on every egui upgrade)
+## Resolved version bindings (egui 0.36 — re-verify on every egui upgrade)
 
-- **eframe 0.35 split `App::update` into `logic()` + `ui()`.** `Agent<A>` maps `pre_frame` onto `logic` and `post_frame` onto the end of `ui`. `App::on_exit`'s signature changes with eframe's `glow` feature — mirrored by the `egui_agent/glow` passthrough feature.
+All of these were re-verified against 0.36.2 source when the pin moved from 0.35 (2026-09-16); none changed.
+
+- **eframe (since 0.35) splits `App::update` into `logic()` + `ui()`.** `Agent<A>` maps `pre_frame` onto `logic` and `post_frame` onto the end of `ui`. `App::on_exit`'s signature changes with eframe's `glow` feature — mirrored by the `egui_agent/glow` passthrough feature.
 - **AccessKit read path**: an `egui::Plugin`'s `output_hook` clones `FullOutput::platform_output::accesskit_update` into a cache (`introspection.rs`); requires `ctx.enable_accesskit()`.
-- **Generic actuation**: the same plugin's `input_hook` injects `egui::Event::AccessKitActionRequest` events — the mechanism kittest and screen readers use. egui 0.35 widgets handle `Click` (buttons/checkboxes), `SetValue` (sliders, NumericValue only). **TextEdit does not handle `SetValue`** — text is set by emulating a user: `Focus` request, then select-all + backspace + `Event::Text` batches injected over successive passes.
+- **Generic actuation**: the same plugin's `input_hook` injects `egui::Event::AccessKitActionRequest` events — the mechanism kittest and screen readers use. egui 0.36 widgets handle `Click` (buttons/checkboxes), `SetValue` (sliders, NumericValue only). **TextEdit does not handle `SetValue`** — text is set by emulating a user: `Focus` request, then select-all + backspace + `Event::Text` batches injected over successive passes.
 - A11y label quirk: `Role::Label` nodes carry their text in the accesskit `value` property; `introspection::convert` mirrors it into `label` so `Selector::Label` matches.
 
 ## Cautions

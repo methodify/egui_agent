@@ -13,7 +13,7 @@
 //!   mechanism a screen reader (or `egui_kittest`) uses to click/actuate
 //!   widgets, so plain `ui.button(..)` widgets respond with no app code.
 //!
-//! Verified against egui 0.35 / accesskit 0.24 (design doc §10/§11 research
+//! Verified against egui 0.36 / accesskit 0.24 (design doc §10/§11 research
 //! tasks): `Context::add_plugin`, `Plugin::{input_hook,output_hook}`,
 //! `PlatformOutput::accesskit_update`, `Event::AccessKitActionRequest`.
 

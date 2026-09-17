@@ -558,7 +558,7 @@ impl<A: AgentApp> Agent<A> {
             }
             Action::SetValue { value, .. } => {
                 if let Some(s) = value.as_str() {
-                    // egui 0.35's TextEdit handles SetTextSelection but not
+                    // egui 0.36's TextEdit handles SetTextSelection but not
                     // SetValue (verified in source), so emulate a user:
                     // focus the widget, then select-all + delete + type.
                     let select_all = egui::Event::Key {

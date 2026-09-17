@@ -8,16 +8,16 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/methodify/egui_agent"
 
 [workspace.dependencies]
-egui = "0.35"
-eframe = { version = "0.35", default-features = false }
-egui_kittest = "0.35"
-# Must match the accesskit version pinned by egui 0.35.
+egui = "0.36"
+eframe = { version = "0.36", default-features = false }
+egui_kittest = "0.36"
+# Must match the accesskit version pinned by egui 0.36.
 accesskit = "0.24.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,3 +27,7 @@ log = "0.4"
 
 [profile.dev]
 opt-level = 1
+debug = 1
+
+[profile.dev.package."*"]
+debug = false

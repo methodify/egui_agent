@@ -5,6 +5,26 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
+## [0.3.0] - 2026-09-16
+
+### Changed (breaking for consumers)
+
+- **Pinned to egui, eframe, and egui_kittest 0.36** (from 0.35). Apps that
+  depend on this crate must move to egui/eframe 0.36 in the same change:
+  egui types cross the API boundary, so mixed versions don't compile.
+  accesskit stays at 0.24.1, which egui 0.36 also pins.
+- Every version-specific binding was re-verified against the 0.36.2 source and
+  none changed: `App::logic`/`ui` and the `glow`-dependent `on_exit`
+  signature, the `Plugin` `input_hook`/`output_hook` capture and injection
+  paths, `PlatformOutput::accesskit_update`, the `AccessKitActionRequest` and
+  `Screenshot` events, the kittest `Harness` API, and the accesskit Click
+  path that drives plain widgets. TextEdit still handles only
+  `SetTextSelection`, so the emulated-typing path for string `set_value`
+  stays.
+
+No source changes were needed. The wire protocol is unchanged, so 0.2.x tools
+(`egui-agent-mcp`, `egui-agent-cli`) keep working against 0.3.0 apps.
+
 ## [0.2.2] - 2026-07-20
 
 ### Added

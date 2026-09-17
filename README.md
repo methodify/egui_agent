@@ -86,4 +86,4 @@ Every app that adopts `egui_agent` gets an integration-test harness for free.
 
 ## Version pinning
 
-Built and verified against **egui/eframe/egui_kittest 0.35** and **accesskit 0.24** (the version egui 0.35 pins). The AccessKit capture/injection paths use egui's `Plugin` API (`input_hook`/`output_hook`) — see `docs/egui_agent_design.md` §10/§11 for the design rationale.
+Built and verified against **egui/eframe/egui_kittest 0.36** and **accesskit 0.24** (the version egui 0.36 pins). The AccessKit capture/injection paths use egui's `Plugin` API (`input_hook`/`output_hook`) — see `docs/egui_agent_design.md` §10/§11 for the design rationale.

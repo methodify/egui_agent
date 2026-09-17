@@ -1,7 +1,7 @@
 //! Section-gated widgets (CollapsingHeader) via accesskit actuation.
 //!
 //! Investigated after a field report that CollapsingHeader "ignores" accesskit
-//! clicks. On egui 0.35 the header registers an a11y node (Role::Button, via
+//! clicks. On egui 0.36 the header registers an a11y node (Role::Button, via
 //! `widget_info`) and egui's generic interact path honors accesskit Click
 //! requests (`FAKE_PRIMARY_CLICKED`), so header clicks work; the report most
 //! likely predates the 0.2.0 node-id fixes (corrupted ids silently no-oped).
