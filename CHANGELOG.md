@@ -5,6 +5,26 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
+## [Unreleased]
+
+### Fixed
+
+- **Apps with more than one native window** (deferred or immediate viewports).
+  egui runs every plugin hook once per viewport pass, and eframe hands every
+  captured screenshot to whichever viewport renders next. With a second window
+  open, three things went wrong intermittently:
+  - `screenshot` failed with "backend did not deliver a screenshot" when the
+    capture landed in the other window's input. A small plugin now catches
+    screenshot events in any viewport's input and `poll` finds the root's.
+  - AccessKit actuation (plain-widget clicks, typing) could be injected into
+    the other window's pass and lost. Queued events now wait for a root pass.
+  - The AccessKit snapshot cache was replaced by whichever viewport finished
+    last, often an empty secondary window. Only the root viewport's tree is
+    kept now. Pass viewports are tracked as a stack because immediate
+    viewports run nested inside their parent's pass.
+
+  No API or wire-protocol change.
+
 ## [0.3.0] - 2026-09-16
 
 ### Changed (breaking for consumers)

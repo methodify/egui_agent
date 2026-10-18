@@ -33,6 +33,10 @@ struct AkState {
     /// Event batches waiting for injection; one batch is drained per pass so
     /// multi-step actuations (focus, then type) land in the right order.
     queue: Vec<Vec<egui::Event>>,
+    /// Viewports of the passes in flight (input_hook pushes, output_hook pops).
+    /// Immediate viewports run nested inside their parent's pass, so this is a
+    /// stack rather than a single value.
+    pass_stack: Vec<egui::ViewportId>,
 }
 
 type Shared = Arc<Mutex<AkState>>;
@@ -49,6 +53,17 @@ impl egui::Plugin for AgentAccessKitPlugin {
 
     fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
         let mut st = self.shared.lock().unwrap();
+        st.pass_stack.push(input.viewport_id);
+        // The agent drives the root viewport. With several native windows
+        // (deferred/immediate viewports) every viewport's pass runs these
+        // hooks; injecting into another viewport's input would lose the
+        // action, so wait for a root pass.
+        if input.viewport_id != egui::ViewportId::ROOT {
+            if !st.queue.is_empty() {
+                ctx.request_repaint_of(egui::ViewportId::ROOT);
+            }
+            return;
+        }
         if !st.queue.is_empty() {
             input.events.extend(st.queue.remove(0));
             if !st.queue.is_empty() {
@@ -58,8 +73,15 @@ impl egui::Plugin for AgentAccessKitPlugin {
     }
 
     fn output_hook(&mut self, _ctx: &egui::Context, output: &mut egui::FullOutput) {
+        let mut st = self.shared.lock().unwrap();
+        let viewport = st.pass_stack.pop().unwrap_or(egui::ViewportId::ROOT);
+        // Only the root viewport's tree is the app the agent inspects; another
+        // window's (often empty) tree must not replace it.
+        if viewport != egui::ViewportId::ROOT {
+            return;
+        }
         if let Some(update) = &output.platform_output.accesskit_update {
-            self.shared.lock().unwrap().apply(update);
+            st.apply(update);
         }
     }
 }
@@ -235,5 +257,75 @@ impl crate::Snapshot {
             nodes: accesskit_nodes(cx.egui()),
             data: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod multi_viewport_tests {
+    use super::*;
+
+    fn pass(ctx: &egui::Context, viewport: egui::ViewportId, label: &str) -> Vec<egui::Event> {
+        let mut input = egui::RawInput {
+            viewport_id: viewport,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .insert(viewport, egui::ViewportInfo::default());
+        let mut seen = Vec::new();
+        let mut out = ctx.run_ui(input, |ui| {
+            seen = ui.ctx().input(|i| i.raw.events.clone());
+            let _ = ui.button(label);
+        });
+        out.textures_delta.clear();
+        seen
+    }
+
+    fn labels(ctx: &egui::Context) -> Vec<String> {
+        fn walk(n: &Node, out: &mut Vec<String>) {
+            if let Some(l) = &n.label {
+                out.push(l.clone());
+            }
+            for c in &n.children {
+                walk(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        for n in accesskit_nodes(ctx) {
+            walk(&n, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn queued_events_wait_for_the_root_viewport() {
+        let ctx = egui::Context::default();
+        ensure_installed(&ctx);
+        pass(&ctx, egui::ViewportId::ROOT, "root button");
+        let marker = egui::Event::Text("marker".into());
+        queue_event_batches(&ctx, vec![vec![marker.clone()]]);
+        let other = egui::ViewportId::from_hash_of("second window");
+        let seen = pass(&ctx, other, "other button");
+        assert!(!seen.contains(&marker), "not injected into another window");
+        let seen = pass(&ctx, egui::ViewportId::ROOT, "root button");
+        assert!(seen.contains(&marker), "injected into the root pass");
+    }
+
+    #[test]
+    fn snapshot_tree_is_the_root_viewport() {
+        let ctx = egui::Context::default();
+        ensure_installed(&ctx);
+        pass(&ctx, egui::ViewportId::ROOT, "root button");
+        pass(&ctx, egui::ViewportId::ROOT, "root button");
+        assert!(labels(&ctx).iter().any(|l| l == "root button"));
+        // Another window renders after the root: its tree must not replace the root's.
+        pass(
+            &ctx,
+            egui::ViewportId::from_hash_of("second window"),
+            "other button",
+        );
+        let l = labels(&ctx);
+        assert!(l.iter().any(|l| l == "root button"), "{l:?}");
+        assert!(!l.iter().any(|l| l == "other button"), "{l:?}");
     }
 }
