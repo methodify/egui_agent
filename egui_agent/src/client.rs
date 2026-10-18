@@ -118,7 +118,8 @@ pub fn connect_uds(
     token: Option<&str>,
 ) -> std::io::Result<Client<std::os::unix::net::UnixStream>> {
     let stream = std::os::unix::net::UnixStream::connect(path)?;
-    Client::from_stream(stream, token)
+    // Name the stream type: see `connect_pipe`.
+    Client::<std::os::unix::net::UnixStream>::from_stream(stream, token)
 }
 
 /// Connect to a named local-socket control channel served by
@@ -134,5 +135,8 @@ pub fn connect_pipe(
 
     let ns_name = name.to_owned().to_ns_name::<GenericNamespaced>()?;
     let stream = Stream::connect(ns_name)?;
-    Client::from_stream(stream, token)
+    // Name the stream type explicitly. Left to inference, the `for<'a> &'a S: Read + Write`
+    // bound is checked before `S` is known; on macOS objc2's blanket
+    // `impl Read for &Retained<T>` then sends the solver into infinite recursion (E0275).
+    Client::<Stream>::from_stream(stream, token)
 }

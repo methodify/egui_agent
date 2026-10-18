@@ -5,6 +5,16 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
+## [Unreleased]
+
+### Fixed
+
+- **macOS build of the `pipe` (and `uds`) client** failed with E0275 (overflow evaluating
+  `&Retained<_>: Read`). `Client::from_stream`'s `for<'a> &'a S: Read + Write` bound was checked
+  before `S` was inferred, and on macOS objc2 (pulled in by eframe/winit) has a blanket
+  `impl Read for &Retained<T>` that sent the solver into infinite recursion. `connect_pipe` and
+  `connect_uds` now name the stream type explicitly. No API change.
+
 ## [0.3.1] - 2026-10-18
 
 ### Fixed
