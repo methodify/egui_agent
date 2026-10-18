@@ -5,7 +5,7 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
-## [Unreleased]
+## [0.3.2] - 2026-10-18
 
 ### Fixed
 
@@ -14,6 +14,14 @@ versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
   before `S` was inferred, and on macOS objc2 (pulled in by eframe/winit) has a blanket
   `impl Read for &Retained<T>` that sent the solver into infinite recursion. `connect_pipe` and
   `connect_uds` now name the stream type explicitly. No API change.
+
+### Known issue (upstream)
+
+- On macOS, building `egui_agent` with the default `eframe` feature but no
+  renderer fails inside eframe 0.36.2 itself: its `lib.rs` re-exports
+  `native::macos::WindowChromeMetrics` without a feature gate, while `mod native`
+  only exists with `glow` or `wgpu`. Apps always enable a renderer, so they are
+  not affected; enable `glow` (or `eframe/wgpu`) when checking the crate alone.
 
 ## [0.3.1] - 2026-10-18
 
