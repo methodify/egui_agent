@@ -226,8 +226,8 @@ fn pipe_round_trip() {
                 }
             }
             let stream = stream.ok_or("could not connect local socket")?;
-            let mut conn =
-                egui_agent::client::Client::from_stream(stream, None).map_err(|e| e.to_string())?;
+            let mut conn = egui_agent::client::Client::<Stream>::from_stream(stream, None)
+                .map_err(|e| e.to_string())?;
             // The first frames may not have completed yet; wait for the UI.
             conn.request(Command::WaitFor {
                 predicate: egui_agent::Predicate::Exists(Selector::Id("bump".into())),
