@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "demo_app"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "eframe",
  "egui",
@@ -982,7 +982,7 @@ dependencies = [
 
 [[package]]
 name = "egui_agent"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "accesskit",
  "base64",
@@ -1003,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "egui_agent_macros"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "egui_agent_mcp"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "egui",
  "egui_agent",

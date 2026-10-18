@@ -42,6 +42,7 @@ All of these were re-verified against 0.36.2 source when the pin moved from 0.35
 - **AccessKit read path**: an `egui::Plugin`'s `output_hook` clones `FullOutput::platform_output::accesskit_update` into a cache (`introspection.rs`); requires `ctx.enable_accesskit()`.
 - **Generic actuation**: the same plugin's `input_hook` injects `egui::Event::AccessKitActionRequest` events — the mechanism kittest and screen readers use. egui 0.36 widgets handle `Click` (buttons/checkboxes), `SetValue` (sliders, NumericValue only). **TextEdit does not handle `SetValue`** — text is set by emulating a user: `Focus` request, then select-all + backspace + `Event::Text` batches injected over successive passes.
 - A11y label quirk: `Role::Label` nodes carry their text in the accesskit `value` property; `introspection::convert` mirrors it into `label` so `Selector::Label` matches.
+- **Multiple viewports (0.3.1+)**: egui runs every plugin hook once per viewport pass, and immediate viewports run nested inside the parent's pass, so `introspection.rs` tracks the pass viewport as a stack. The agent drives the root viewport only: event injection waits for a root pass, only the root's a11y tree is cached, and `screenshot.rs` stashes `Event::Screenshot` from any viewport's input because eframe routes captures to whichever viewport renders next. Keep new hooks viewport-aware.
 
 ## Cautions
 

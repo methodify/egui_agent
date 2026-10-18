@@ -5,7 +5,7 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
-## [Unreleased]
+## [0.3.1] - 2026-10-18
 
 ### Fixed
 
