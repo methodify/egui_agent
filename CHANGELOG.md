@@ -5,6 +5,18 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
+## [0.4.0] - 2026-10-30
+
+### Changed
+
+- **egui 0.37 / eframe 0.37 / egui_kittest 0.37 / accesskit 0.25.** Screenshots use egui 0.37's
+  callback form of `ViewportCommand::Screenshot` (`Context::request_screenshot`): the capture is
+  filed under the viewport that asked, so the `Event::Screenshot` catcher plugin is gone.
+  `Id::new` → `Id::unique` throughout. The test harness turns off kittest's accessible-name check
+  (an agent inspects and drives apps as they are; unlabeled widgets are reached by node id) and
+  bundles egui's default fonts. A collapsing header reports the `button` role (egui 0.37 gives it
+  AccessKit's `DisclosureTriangle`), so label selectors keep working.
+
 ## [0.3.2] - 2026-10-18
 
 ### Fixed

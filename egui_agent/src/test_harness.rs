@@ -57,7 +57,10 @@ impl<'a, A: AgentApp + 'static> TestHarness<'a, A> {
             agent,
             ui: Box::new(ui),
         };
-        let harness = egui_kittest::Harness::new_ui_state(
+        // kittest 0.37 fails a frame when a widget has no accessible name; an agent exists to
+        // inspect and drive apps as they are (unlabeled widgets are reached by node id), so the
+        // harness does not enforce that here
+        let harness = egui_kittest::Harness::builder().with_accessibility_check(false).build_ui_state(
             |ui, state: &mut HarnessState<A>| {
                 let ctx = ui.ctx().clone();
                 let HarnessState { agent, ui: app_ui } = state;

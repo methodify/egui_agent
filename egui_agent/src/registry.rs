@@ -37,7 +37,7 @@ struct RegistryState {
 type Shared = Arc<Mutex<RegistryState>>;
 
 fn shared(ctx: &egui::Context) -> Shared {
-    let key = egui::Id::new("egui_agent::registry");
+    let key = egui::Id::unique("egui_agent::registry");
     ctx.data_mut(|d| d.get_temp_mut_or_default::<Shared>(key).clone())
 }
 

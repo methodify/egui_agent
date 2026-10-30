@@ -98,14 +98,14 @@ impl AkState {
 }
 
 fn shared(ctx: &egui::Context) -> Shared {
-    let key = egui::Id::new("egui_agent::accesskit");
+    let key = egui::Id::unique("egui_agent::accesskit");
     ctx.data_mut(|d| d.get_temp_mut_or_default::<Shared>(key).clone())
 }
 
 /// Enable accesskit and register the capture/injection plugin (idempotent).
 /// Called by the `Agent` wrapper every frame; cheap after the first call.
 pub(crate) fn ensure_installed(ctx: &egui::Context) {
-    let key = egui::Id::new("egui_agent::accesskit_installed");
+    let key = egui::Id::unique("egui_agent::accesskit_installed");
     let installed = ctx.data(|d| d.get_temp::<bool>(key).unwrap_or(false));
     if installed {
         return;
@@ -236,7 +236,8 @@ fn role_name(role: accesskit::Role) -> String {
     // Reuse the registry role names for the common widgets so selectors work
     // uniformly across both introspection sources.
     match role {
-        accesskit::Role::Button => crate::roles::BUTTON.to_owned(),
+        // a collapsing header is a disclosure triangle since egui 0.37; it clicks like a button
+        accesskit::Role::Button | accesskit::Role::DisclosureTriangle => crate::roles::BUTTON.to_owned(),
         accesskit::Role::CheckBox => crate::roles::CHECKBOX.to_owned(),
         accesskit::Role::TextInput | accesskit::Role::MultilineTextInput => {
             crate::roles::TEXT_INPUT.to_owned()

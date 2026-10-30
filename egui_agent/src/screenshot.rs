@@ -1,6 +1,6 @@
 //! Screenshot fallback: ask the backend for a frame capture via
-//! `ViewportCommand::Screenshot`, then poll for the resulting
-//! `egui::Event::Screenshot` and encode it as PNG.
+//! `Context::request_screenshot` (egui 0.37's callback form of
+//! `ViewportCommand::Screenshot`), then poll for the delivered image and encode it as PNG.
 //!
 //! Requires a backend that honors the command (eframe's glow/wgpu backends
 //! do; headless kittest without a renderer does not — the command then
@@ -17,54 +17,21 @@ use crate::protocol::{AgentError, Response, ResponseBody};
 type Stash = Arc<Mutex<Vec<(egui::ViewportId, Arc<egui::ColorImage>)>>>;
 
 fn stash(ctx: &egui::Context) -> Stash {
-    let key = egui::Id::new("egui_agent::screenshot_stash");
+    let key = egui::Id::unique("egui_agent::screenshot_stash");
     ctx.data_mut(|d| d.get_temp_mut_or_default::<Stash>(key).clone())
 }
 
-/// Backends deliver every captured screenshot into the raw input of whichever
-/// viewport runs next (eframe's `handle_screenshots`), which with several
-/// native windows is often not the viewport that asked. This plugin sees every
-/// viewport's input and keeps the screenshots for [`poll`].
-struct ScreenshotCatcher {
-    stash: Stash,
-}
-
-impl egui::Plugin for ScreenshotCatcher {
-    fn debug_name(&self) -> &'static str {
-        "egui_agent::screenshot"
-    }
-
-    fn input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
-        let mut found = Vec::new();
-        for e in &input.events {
-            if let egui::Event::Screenshot {
-                viewport_id, image, ..
-            } = e
-            {
-                found.push((*viewport_id, image.clone()));
-            }
-        }
-        if !found.is_empty() {
-            self.stash.lock().unwrap().extend(found);
-        }
-    }
-}
-
-fn ensure_installed(ctx: &egui::Context) {
-    let key = egui::Id::new("egui_agent::screenshot_installed");
-    if ctx.data(|d| d.get_temp::<bool>(key).unwrap_or(false)) {
-        return;
-    }
-    ctx.add_plugin(ScreenshotCatcher { stash: stash(ctx) });
-    ctx.data_mut(|d| d.insert_temp(key, true));
-}
-
-/// Ask the backend to capture the current viewport.
+/// Ask the backend to capture the current viewport. egui 0.37 delivers the capture to a
+/// callback (no more `Event::Screenshot`), so the callback files it under the viewport that
+/// asked, whichever viewport runs the next frame.
 pub(crate) fn request(ctx: &egui::Context) {
-    ensure_installed(ctx);
     let viewport = ctx.viewport_id();
-    stash(ctx).lock().unwrap().retain(|(v, _)| *v != viewport);
-    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+    let stash = stash(ctx);
+    stash.lock().unwrap().retain(|(v, _)| *v != viewport);
+    let sink = stash.clone();
+    ctx.request_screenshot(move |image| {
+        sink.lock().unwrap().push((viewport, image));
+    });
 }
 
 /// Check for the delivered screenshot of the current viewport, wherever the
@@ -110,40 +77,31 @@ fn encode_png(image: &egui::ColorImage) -> Response {
 mod tests {
     use super::*;
 
+    /// The backend answers a request through the callback; `poll` hands the image out once,
+    /// for the viewport that asked, wherever the backend's frame ran.
     #[test]
-    fn root_screenshot_delivered_to_another_viewport_is_found() {
+    fn delivered_screenshot_is_polled_once() {
         let ctx = egui::Context::default();
-        let root = egui::ViewportId::ROOT;
-        let other = egui::ViewportId::from_hash_of("second window");
-        ctx.run_ui(egui::RawInput::default(), |ui| request(ui.ctx()))
-            .textures_delta
-            .clear();
-        // The backend routes the capture into the other window's next input.
-        let image = Arc::new(egui::ColorImage::new([2, 2], vec![egui::Color32::RED; 4]));
-        let mut input = egui::RawInput {
-            viewport_id: other,
-            events: vec![egui::Event::Screenshot {
-                viewport_id: root,
-                user_data: egui::UserData::default(),
-                image,
-            }],
-            ..Default::default()
-        };
-        input.viewports.insert(other, egui::ViewportInfo::default());
-        ctx.run_ui(input, |_| {}).textures_delta.clear();
+        let viewport = ctx.viewport_id();
+        ctx.run_ui(egui::RawInput::default(), |ui| request(ui.ctx())).textures_delta.clear();
+        let image = Arc::new(egui::ColorImage::filled([2, 2], egui::Color32::RED));
+        stash(&ctx).lock().unwrap().push((viewport, image));
         let mut got = None;
-        ctx.run_ui(egui::RawInput::default(), |ui| got = poll(ui.ctx()))
-            .textures_delta
-            .clear();
-        assert!(
-            got.is_some(),
-            "screenshot found despite landing in another viewport"
-        );
-        // Consumed once.
+        ctx.run_ui(egui::RawInput::default(), |ui| got = poll(ui.ctx())).textures_delta.clear();
+        assert!(got.is_some(), "the delivered screenshot is found");
         let mut again = None;
-        ctx.run_ui(egui::RawInput::default(), |ui| again = poll(ui.ctx()))
-            .textures_delta
-            .clear();
-        assert!(again.is_none());
+        ctx.run_ui(egui::RawInput::default(), |ui| again = poll(ui.ctx())).textures_delta.clear();
+        assert!(again.is_none(), "consumed once");
+    }
+
+    #[test]
+    fn a_request_clears_a_stale_capture() {
+        let ctx = egui::Context::default();
+        let viewport = ctx.viewport_id();
+        stash(&ctx).lock().unwrap().push((viewport, Arc::new(egui::ColorImage::filled([1, 1], egui::Color32::BLUE))));
+        ctx.run_ui(egui::RawInput::default(), |ui| request(ui.ctx())).textures_delta.clear();
+        let mut got = None;
+        ctx.run_ui(egui::RawInput::default(), |ui| got = poll(ui.ctx())).textures_delta.clear();
+        assert!(got.is_none(), "the stale capture went with the new request");
     }
 }

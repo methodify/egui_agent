@@ -25,7 +25,7 @@ accesskit-introspection = ["dep:accesskit"]
 # Screenshot fallback command (PNG of the current frame; requires a backend that honors ViewportCommand::Screenshot).
 screenshot = ["dep:image", "dep:base64"]
 # In-process test harness driving Agent<A> under egui_kittest.
-test-harness = ["dep:egui_kittest"]
+test-harness = ["dep:egui_kittest", "egui/default_fonts"]
 
 [dependencies]
 egui.workspace = true

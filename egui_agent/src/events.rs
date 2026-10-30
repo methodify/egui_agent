@@ -26,7 +26,7 @@ struct EventBuffer {
 type Shared = Arc<Mutex<EventBuffer>>;
 
 fn shared(ctx: &egui::Context) -> Shared {
-    let key = egui::Id::new("egui_agent::events");
+    let key = egui::Id::unique("egui_agent::events");
     ctx.data_mut(|d| d.get_temp_mut_or_default::<Shared>(key).clone())
 }
 
