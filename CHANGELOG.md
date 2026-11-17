@@ -5,6 +5,15 @@ All notable changes to this workspace (`egui_agent`, `egui_agent_mcp`,
 workspace. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning follows [SemVer](https://semver.org) (0.x: minor bumps may break).
 
+## [0.3.3] - 2026-11-17
+
+### Added
+
+- License files. The manifests have declared `MIT OR Apache-2.0` since 0.1.0,
+  but the repository shipped no license text, so consumers had no actual
+  grant. `LICENSE-MIT` and `LICENSE-APACHE` (copyright Bryon Williams) are now
+  at the repository root, with a License section in the README. No code change.
+
 ## [0.3.2] - 2026-10-18
 
 ### Fixed

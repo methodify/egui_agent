@@ -87,3 +87,14 @@ Every app that adopts `egui_agent` gets an integration-test harness for free.
 ## Version pinning
 
 Built and verified against **egui/eframe/egui_kittest 0.36** and **accesskit 0.24** (the version egui 0.36 pins). The AccessKit capture/injection paths use egui's `Plugin` API (`input_hook`/`output_hook`) — see `docs/egui_agent_design.md` §10/§11 for the design rationale.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
